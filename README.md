@@ -51,6 +51,8 @@ next attempt starts from the evidence rather than repeating it.
 - Cameras on the same local network as the PC. Xiaomi cameras refuse
   connections from another subnet, so a VPN or a routed VLAN will not work.
 - A Mi account, with the correct server region for your cameras
+- Windows Firewall has to let the app receive UDP, or nothing will connect. See
+  [Windows Firewall](#windows-firewall).
 
 ## Getting started
 
@@ -75,6 +77,43 @@ second lens of a CW500 is. Under them are the three settings worth reaching
 without leaving the picture -- the audible alarm, the fill light (the `LED`
 button) and night vision -- and a camera that does not offer one of them does not
 show it. Everything else lives in the settings panel.
+
+## Windows Firewall
+
+The app must be allowed to receive UDP. Without that, no camera connects.
+
+Discovery and the CS2 handshake both work the same way: a UDP socket on an
+ephemeral local port sends to the camera and to the directed broadcast of its
+subnet on port 32108, and the camera answers from a different port than the one
+it was asked on. Windows has no outbound conversation to match those replies
+against, so it treats them as unsolicited and drops them. The media session may
+then run over TCP, but the handshake that negotiates it never does, so the rule
+is needed either way.
+
+Windows normally asks on the first run, and allowing it there is enough --
+provided the profile it is allowed on is the one the camera network uses. A
+Wi-Fi network set to Public is not covered by a rule that allows only Private.
+If that prompt was dismissed, Windows records the refusal as a block rule, and a
+block rule beats an allow rule added afterwards, so that one has to go before a
+new rule will help.
+
+To create the rule by hand, in PowerShell as administrator, with the path
+pointing at wherever the executable was unpacked:
+
+```powershell
+New-NetFirewallRule -DisplayName "Xiaomi Camera Viewer" -Direction Inbound `
+    -Program "C:\Apps\XiaomiViewer\XiaomiViewer.exe" `
+    -Protocol UDP -Action Allow -Profile Private,Domain
+```
+
+The rule matches the program rather than a port, because the port the app
+listens on is a different one every run.
+
+The log separates this from a camera that is not there. When replies are being
+dropped nothing arrives at all, which reads `nothing on the subnet answered`. A
+camera that is switched off or has moved reads `the camera did not answer,
+though N datagram(s) arrived from other devices on the subnet`, because those
+other devices' replies did get through.
 
 ## Recording
 
