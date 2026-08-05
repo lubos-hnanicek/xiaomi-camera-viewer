@@ -1,0 +1,65 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "toolset": {
+        "value": "host=x64",
+        "strategy": "external"
+      },
+      "cacheVariables": {
+        "CMAKE_CONFIGURATION_TYPES": "Debug;RelWithDebInfo;Release"
+      }
+    },
+    {
+      "name": "msvc",
+      "displayName": "MSVC 2026 x64 (Ninja Multi-Config)",
+      "description": "Default preset. Uses the MSVC toolchain from a Developer Command Prompt or the Visual Studio CMake integration.",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "cl.exe",
+        "CMAKE_CXX_COMPILER": "cl.exe"
+      }
+    },
+    {
+      "name": "vs2026",
+      "displayName": "MSVC 2026 x64 (Visual Studio solution)",
+      "description": "Generates a .sln for those who prefer the classic solution workflow.",
+      "generator": "Visual Studio 18 2026",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "architecture": "x64"
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "displayName": "Debug",
+      "configurePreset": "msvc",
+      "configuration": "Debug"
+    },
+    {
+      "name": "release",
+      "displayName": "Release",
+      "configurePreset": "msvc",
+      "configuration": "RelWithDebInfo"
+    },
+    {
+      "name": "vs-release",
+      "displayName": "Release (Visual Studio)",
+      "configurePreset": "vs2026",
+      "configuration": "RelWithDebInfo"
+    }
+  ]
+}
