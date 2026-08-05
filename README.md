@@ -7,6 +7,11 @@ Video travels straight from the camera to your PC over the local network.
 Xiaomi's cloud is used only to sign in, list your devices, exchange the
 per-session encryption keys, and read or write camera settings.
 
+![Four cameras in the automatic grid](docs/screenshot.jpg)
+
+Four cameras in the automatic grid, with the control pad on the selected tile.
+The pictures in the tiles are stand-ins rather than real camera output.
+
 ## Features
 
 - Live view of several cameras at once, in a 1x1, 2x2, 3x3 or automatic grid
