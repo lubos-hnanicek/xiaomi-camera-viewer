@@ -140,7 +140,9 @@ if ($Package) {
     Copy-Item (Join-Path $outputDir 'XiaomiViewer.exe') $dist
     Copy-Item (Join-Path $outputDir '*.dll') $dist -ErrorAction SilentlyContinue
 
-    foreach ($doc in @('README.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md')) {
+    # LICENSE.LGPL-2.1.txt has to travel with the FFmpeg DLLs, not just be
+    # referenced from the notices, for the LGPL to be satisfied.
+    foreach ($doc in @('README.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'LICENSE.LGPL-2.1.txt')) {
         $path = Join-Path $RepoRoot $doc
         if (Test-Path $path) { Copy-Item $path $dist }
     }

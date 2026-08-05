@@ -18,16 +18,20 @@ files were taken and how they were modified.
 ## FFmpeg
 
 Video decoding uses [FFmpeg](https://ffmpeg.org/) 8.1, specifically
-`libavcodec`, `libavutil` and `libswresample`. The shipped binaries are the
-LGPL-2.1-or-later configuration from the
+`libavcodec`, `libavformat`, `libavutil` and `libswresample`. The shipped
+binaries are the LGPL-2.1-or-later configuration from the
 [BtbN builds](https://github.com/BtbN/FFmpeg-Builds), linked **dynamically** as
-separate DLLs.
+separate DLLs. A copy of the license is included as `LICENSE.LGPL-2.1.txt`.
+
+The exact artefact is `ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip` from
+<https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip>,
+which is also what `scripts/fetch-deps.ps1` downloads. That release records the
+build configuration, and FFmpeg's own source is at
+<https://ffmpeg.org/download.html>.
 
 Because the linkage is dynamic and the libraries are shipped unmodified as
 replaceable DLLs, the LGPL's relinking requirement is satisfied: you may swap in
-your own build of the same FFmpeg version. FFmpeg's source is available from
-<https://ffmpeg.org/download.html>, and the exact build configuration used is
-recorded in the BtbN release the DLLs came from.
+your own build of the same FFmpeg version.
 
 No GPL-licensed FFmpeg components are included.
 
