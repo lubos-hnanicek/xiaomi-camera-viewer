@@ -13,6 +13,14 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Static CRT, because the app ships as a zip that is unpacked and run: a missing
+# or too-old Visual C++ redistributable would otherwise stop it starting, and
+# the toolset is new enough that "some redistributable is installed" is not
+# enough. Safe because no CRT object crosses a module boundary -- the bridge ABI
+# passes only caller-owned buffers, and FFmpeg memory is always released through
+# FFmpeg's own allocators -- so the private heap is never shared.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 set(THIRD_PARTY "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 
 if(NOT EXISTS "${THIRD_PARTY}/imgui/imgui.h")
