@@ -30,6 +30,8 @@
 #define XMB_CODEC_H265 2
 #define XMB_CODEC_PCMA 3
 #define XMB_CODEC_OPUS 4
+#define XMB_CODEC_PCM  5
+#define XMB_CODEC_PCMU 6
 
 /*
  * Metadata for one access unit. Video payloads are Annex-B byte streams, which
@@ -37,13 +39,13 @@
  * happens anywhere along the path.
  */
 typedef struct XmbFrame {
-    int32_t  kind;     /* XMB_KIND_*                                        */
-    int32_t  codec;    /* XMB_CODEC_*                                       */
-    int32_t  keyframe; /* 1 if this access unit starts a GOP (video only)   */
-    int32_t  reserved;
-    int64_t  pts_ms;   /* presentation timestamp in milliseconds            */
-    uint32_t sequence; /* camera-assigned sequence number                   */
-    uint32_t size;     /* bytes written, or bytes required if cap too small */
+    int32_t  kind;        /* XMB_KIND_*                                        */
+    int32_t  codec;       /* XMB_CODEC_*                                       */
+    int32_t  keyframe;    /* 1 if this access unit starts a GOP (video only)   */
+    int32_t  sample_rate; /* audio only, in Hz; the camera sends mono          */
+    int64_t  pts_ms;      /* presentation timestamp in milliseconds            */
+    uint32_t sequence;    /* camera-assigned sequence number                   */
+    uint32_t size;        /* bytes written, or bytes required if cap too small */
 } XmbFrame;
 
 #endif /* XMBRIDGE_TYPES_H */

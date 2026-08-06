@@ -495,11 +495,12 @@ func handleStreamCommand(s *stream.Session, request []byte) []byte {
 	case "stats":
 		st := s.Stats()
 		return okResponse(map[string]any{
-			"frames":  st.Frames,
-			"bytes":   st.Bytes,
-			"dropped":    st.Dropped,
-			"replies":    st.Replies,
-			"last_reply": st.LastReply,
+			"frames":      st.Frames,
+			"bytes":       st.Bytes,
+			"dropped":     st.Dropped,
+			"replies":     st.Replies,
+			"last_reply":  st.LastReply,
+			"audio_asked": st.AudioAsked,
 		})
 
 	default:

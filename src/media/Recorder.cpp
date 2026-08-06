@@ -4,11 +4,13 @@
 #include <utility>
 
 #include "app/Log.h"
+#include "media/AudioFormat.h"
 #include "xmbridge.h"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
+#include <libavutil/channel_layout.h>
 #include <libavutil/error.h>
 }
 
@@ -23,6 +25,25 @@ std::string avError(int code) {
 
 AVCodecID codecIdFor(int codec) {
     return codec == XMB_CODEC_H265 ? AV_CODEC_ID_HEVC : AV_CODEC_ID_H264;
+}
+
+// Copies `bytes` into freshly allocated extradata, which FFmpeg frees along
+// with the stream. Nothing is written when there is nothing to write, because a
+// zero-length extradata block is not the same as none.
+bool setExtradata(AVCodecParameters* par, const std::vector<uint8_t>& bytes) {
+    if (bytes.empty()) {
+        return true;
+    }
+
+    par->extradata =
+        static_cast<uint8_t*>(av_mallocz(bytes.size() + AV_INPUT_BUFFER_PADDING_SIZE));
+    if (par->extradata == nullptr) {
+        return false;
+    }
+
+    std::copy(bytes.begin(), bytes.end(), par->extradata);
+    par->extradata_size = static_cast<int>(bytes.size());
+    return true;
 }
 
 // FFmpeg takes paths as UTF-8 and widens them itself on Windows. The native
@@ -120,7 +141,8 @@ Recorder::~Recorder() {
 }
 
 bool Recorder::open(const std::filesystem::path& path, int codec, int width, int height,
-                    const uint8_t* keyframe, size_t size, std::string& error) {
+                    const uint8_t* keyframe, size_t size, const AudioTrack& audio,
+                    std::string& error) {
     close();
 
     if (width <= 0 || height <= 0) {
@@ -163,15 +185,18 @@ bool Recorder::open(const std::filesystem::path& path, int codec, int width, int
     par->width = width;
     par->height = height;
 
-    par->extradata = static_cast<uint8_t*>(
-        av_mallocz(sets.size() + AV_INPUT_BUFFER_PADDING_SIZE));
-    if (par->extradata == nullptr) {
+    if (!setExtradata(par, sets)) {
         error = "out of memory";
         close();
         return false;
     }
-    std::copy(sets.begin(), sets.end(), par->extradata);
-    par->extradata_size = static_cast<int>(sets.size());
+
+    if (audio.valid() && !addAudioTrack(audio, error)) {
+        // A file with a picture and no sound is worth more than no file, so
+        // this is reported and carried on from rather than failed.
+        XV_WARN("recording without audio: {}", error);
+        error.clear();
+    }
 
     if (const int rc = avio_open(&format_->pb, target.c_str(), AVIO_FLAG_WRITE); rc < 0) {
         error = "could not create the file: " + avError(rc);
@@ -196,18 +221,72 @@ bool Recorder::open(const std::filesystem::path& path, int codec, int width, int
     bytes_ = 0;
     firstPts_ = -1;
     lastPts_ = -1;
+    lastAudioPts_ = -1;
 
-    XV_INFO("recording to {} ({}x{} {})", target, width, height,
-            codec == XMB_CODEC_H265 ? "H.265" : "H.264");
+    XV_INFO("recording to {} ({}x{} {}, {})", target, width, height,
+            codec == XMB_CODEC_H265 ? "H.265" : "H.264",
+            audio_ != nullptr ? audio::codecName(audio.codec) : "no audio");
     return true;
 }
 
-bool Recorder::write(const uint8_t* data, size_t size, int64_t ptsMs, bool keyframe,
-                     std::string& error) {
+bool Recorder::addAudioTrack(const AudioTrack& audio, std::string& error) {
+    const auto id = static_cast<AVCodecID>(audio::avCodecId(audio.codec));
+    if (id == AV_CODEC_ID_NONE) {
+        error = std::format("the camera's audio codec ({}) cannot be stored in Matroska",
+                            audio::codecName(audio.codec));
+        return false;
+    }
+
+    AVStream* stream = avformat_new_stream(format_, nullptr);
+    if (stream == nullptr) {
+        error = "could not add an audio track";
+        return false;
+    }
+
+    stream->time_base = AVRational{1, 1000};
+
+    AVCodecParameters* par = stream->codecpar;
+    par->codec_type = AVMEDIA_TYPE_AUDIO;
+    par->codec_id = id;
+    // Opus is always coded at 48 kHz, whatever the microphone in front of it
+    // ran at, and a track that claims otherwise plays at the wrong speed.
+    par->sample_rate = audio::outputSampleRate(audio.codec, audio.sampleRate);
+    av_channel_layout_default(&par->ch_layout, audio.channels);
+
+    switch (id) {
+    case AV_CODEC_ID_PCM_ALAW:
+    case AV_CODEC_ID_PCM_MULAW:
+        // Matroska carries G.711 inside a WAVEFORMATEX block, which the muxer
+        // builds itself but cannot do without the sample width.
+        par->bits_per_coded_sample = 8;
+        break;
+    case AV_CODEC_ID_PCM_S16LE:
+        par->bits_per_coded_sample = 16;
+        break;
+    case AV_CODEC_ID_OPUS:
+        // The camera sends bare Opus packets, and Matroska refuses an Opus
+        // track that cannot say how many channels it has.
+        if (!setExtradata(par, audio::opusHead(audio.channels, audio.sampleRate))) {
+            error = "out of memory";
+            return false;
+        }
+        break;
+    default:
+        break;
+    }
+
+    audio_ = stream;
+    return true;
+}
+
+bool Recorder::writeVideo(const uint8_t* data, size_t size, int64_t ptsMs, bool keyframe,
+                          std::string& error) {
     if (format_ == nullptr || packet_ == nullptr) {
         return false;
     }
 
+    // The first video frame is what the whole file is timed from, audio
+    // included, so the two tracks keep the offset the camera sent them with.
     if (firstPts_ < 0) {
         firstPts_ = ptsMs;
     }
@@ -222,18 +301,61 @@ bool Recorder::write(const uint8_t* data, size_t size, int64_t ptsMs, bool keyfr
         pts = lastPts_ + 1;
     }
 
+    if (!writePacket(stream_, data, size, pts, keyframe, error)) {
+        return false;
+    }
+
+    lastPts_ = pts;
+    return true;
+}
+
+bool Recorder::writeAudio(const uint8_t* data, size_t size, int64_t ptsMs, std::string& error) {
+    if (format_ == nullptr || packet_ == nullptr || audio_ == nullptr) {
+        return true; // a recording without an audio track, which is not a failure
+    }
+
+    // Audio that arrived before the opening keyframe belongs to a moment the
+    // file does not cover, and would have to be written at a negative time.
+    if (firstPts_ < 0) {
+        return true;
+    }
+
+    int64_t pts = ptsMs - firstPts_;
+    if (pts < 0) {
+        return true;
+    }
+    if (pts <= lastAudioPts_) {
+        pts = lastAudioPts_ + 1;
+    }
+
+    // Every audio packet is independently decodable, so all of them are
+    // keyframes as far as the container is concerned.
+    if (!writePacket(audio_, data, size, pts, true, error)) {
+        return false;
+    }
+
+    lastAudioPts_ = pts;
+    return true;
+}
+
+bool Recorder::writePacket(AVStream* stream, const uint8_t* data, size_t size, int64_t pts,
+                           bool keyframe, std::string& error) {
     av_packet_unref(packet_);
     packet_->data = const_cast<uint8_t*>(data);
     packet_->size = static_cast<int>(size);
-    packet_->stream_index = stream_->index;
+    packet_->stream_index = stream->index;
     packet_->pts = pts;
     packet_->dts = pts; // no reordering: these cameras send no B-frames
     packet_->flags = keyframe ? AV_PKT_FLAG_KEY : 0;
 
-    const int rc = av_write_frame(format_, packet_);
+    // Interleaved, not direct: Matroska clusters have to come out in timestamp
+    // order across both tracks, and only the muxer knows how far ahead one of
+    // them has run. It takes a copy of the packet, which is what lets the data
+    // keep pointing at the caller's buffer.
+    const int rc = av_interleaved_write_frame(format_, packet_);
 
-    // Written or not, the packet must not keep pointing at a caller's buffer
-    // that is about to be reused for the next access unit.
+    // The muxer unreferences the packet on the way out, but it may not have got
+    // that far, and the buffer behind it is the caller's to reuse.
     packet_->data = nullptr;
     packet_->size = 0;
 
@@ -243,14 +365,14 @@ bool Recorder::write(const uint8_t* data, size_t size, int64_t ptsMs, bool keyfr
     }
 
     bytes_ += size;
-    lastPts_ = pts;
     return true;
 }
 
 void Recorder::close() {
     if (format_ != nullptr && format_->pb != nullptr) {
         // Only a file that got its header can get a trailer, and the trailer is
-        // what carries the index and the duration.
+        // what carries the index and the duration. Writing it also flushes
+        // whatever the interleaving queue is still holding on to.
         if (stream_ != nullptr && lastPts_ >= 0) {
             if (const int rc = av_write_trailer(format_); rc < 0) {
                 XV_WARN("recording {} did not finish cleanly: {}", utf8Of(path_), avError(rc));
@@ -268,8 +390,10 @@ void Recorder::close() {
     }
 
     stream_ = nullptr;
+    audio_ = nullptr;
     firstPts_ = -1;
     lastPts_ = -1;
+    lastAudioPts_ = -1;
 }
 
 } // namespace xv

@@ -12,6 +12,7 @@
 #include "app/Frameless.h"
 #include "cloud/Miot.h"
 #include "config/Config.h"
+#include "media/AudioPlayer.h"
 #include "media/StreamWorker.h"
 #include "render/D3D11Context.h"
 #include "render/VideoFrameTexture.h"
@@ -124,6 +125,16 @@ public:
     [[nodiscard]] bool recording(const CameraStream& stream) const;
     void openRecordingsFolder() const;
 
+    // Plays this camera through the speakers, and stops any other camera that
+    // was playing. One at a time is the whole design: several cameras at once
+    // is noise nobody can pick a sound out of.
+    void toggleListening(CameraStream& stream);
+    [[nodiscard]] bool listening(const CameraStream& stream) const;
+    void muteAll();
+    // Why nothing can be heard, empty when there is nothing wrong. Only ever
+    // about the output device; a camera that sends no audio is not an error.
+    [[nodiscard]] std::string audioError() const { return audio_.error(); }
+
     // MIoT operations, all asynchronous. A write is followed by a refresh so
     // the panel shows what the camera actually accepted rather than what was
     // asked for.
@@ -207,6 +218,10 @@ private:
     AsyncTask<Json> deviceTask_;
     AsyncTask<Json> restoreTask_;
     std::string deviceError_;
+
+    // Declared before the streams so it outlives them: a worker feeding it must
+    // be gone before the player it feeds is.
+    AudioPlayer audio_;
 
     std::vector<std::unique_ptr<CameraStream>> streams_;
     std::vector<DiscoveredDevice> devices_;

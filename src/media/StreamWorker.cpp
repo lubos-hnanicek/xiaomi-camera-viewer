@@ -6,6 +6,7 @@
 #include <string_view>
 
 #include "app/Log.h"
+#include "media/AudioFormat.h"
 
 extern "C" {
 #include <libavutil/frame.h>
@@ -181,6 +182,15 @@ bool StreamWorker::session(D3D11Context& gpu) {
     std::vector<uint8_t> buffer;
     XmbFrame meta{};
 
+    // A new session may negotiate a different format, and a recording started
+    // in it must describe what this session sends rather than the last one.
+    audioCodec_ = 0;
+    audioRate_ = 0;
+    {
+        std::scoped_lock lock(statusMutex_);
+        status_.audio.clear();
+    }
+
     bool sawVideo = false;
     bool sawKeyframe = false;
 
@@ -198,8 +208,12 @@ bool StreamWorker::session(D3D11Context& gpu) {
             status_.bytesReceived += meta.size;
         }
 
+        if (meta.kind == XMB_KIND_AUDIO) {
+            serviceAudio(buffer.data(), meta);
+            continue;
+        }
         if (meta.kind != XMB_KIND_VIDEO) {
-            continue; // audio is carried but not consumed in this build
+            continue;
         }
 
         sawVideo = true;
@@ -236,6 +250,12 @@ bool StreamWorker::session(D3D11Context& gpu) {
             std::scoped_lock lock(statusMutex_);
             status_.framesDecoded = decoder.framesDecoded();
         }
+    }
+
+    // Worth saying out loud: a camera that carried video but no audio after
+    // being asked for both is the case where listening silently does nothing.
+    if (camera_.audio && audioCodec_ == 0 && sawVideo) {
+        XV_WARN("{}: no audio arrived, although the session asked for it", camera_.label());
     }
 
     // A file is finished with the session that filled it, so a reconnect starts
@@ -400,6 +420,68 @@ void StreamWorker::stopRecording() {
     recordRequested_.store(false, std::memory_order_release);
 }
 
+void StreamWorker::serviceAudio(const uint8_t* data, const XmbFrame& meta) {
+    if (meta.codec != audioCodec_ || meta.sample_rate != audioRate_) {
+        audioCodec_ = meta.codec;
+        audioRate_ = meta.sample_rate;
+
+        // Logged because until this line existed nobody knew what these
+        // cameras actually send, and a model that sends something else is
+        // going to be found by reading this.
+        XV_INFO("{}: audio is {} at {} Hz, first packet {} bytes", camera_.label(),
+                audio::codecName(meta.codec), meta.sample_rate, meta.size);
+
+        {
+            std::scoped_lock lock(statusMutex_);
+            status_.audio =
+                std::format("{} at {} kHz", audio::codecName(meta.codec), meta.sample_rate / 1000);
+        }
+
+        // A format that changed under a decoder that is already running is not
+        // something the decoder can be told about, so it is reopened.
+        audioDecoder_.close();
+    }
+
+    if (recorder_.recording()) {
+        std::string error;
+        if (!recorder_.writeAudio(data, meta.size, meta.pts_ms, error)) {
+            abandonRecording(error);
+        }
+    }
+
+    AudioPlayer* speaker = speaker_.load(std::memory_order_acquire);
+    if (speaker == nullptr) {
+        // Nobody is listening. Closing here rather than in mute() keeps the
+        // decoder on the one thread that ever touches it.
+        audioDecoder_.close();
+        return;
+    }
+
+    if (!audioDecoder_.isOpen()) {
+        std::string error;
+        if (!audioDecoder_.open(meta.codec, meta.sample_rate, error)) {
+            XV_WARN("{}: cannot listen: {}", camera_.label(), error);
+            // Muting rather than retrying every packet: the next one would fail
+            // the same way and fill the log doing it.
+            mute();
+            return;
+        }
+    }
+
+    audioDecoder_.decode(data, meta.size,
+                         [speaker](const AVFrame* frame) { speaker->submit(frame); });
+}
+
+void StreamWorker::listen(AudioPlayer* speaker) {
+    speaker_.store(speaker, std::memory_order_release);
+    std::scoped_lock lock(statusMutex_);
+    status_.audible = speaker != nullptr;
+}
+
+void StreamWorker::mute() {
+    listen(nullptr);
+}
+
 void StreamWorker::serviceRecording(const uint8_t* data, const XmbFrame& meta) {
     if (!recordRequested_.load(std::memory_order_acquire)) {
         finishRecording();
@@ -427,9 +509,14 @@ void StreamWorker::serviceRecording(const uint8_t* data, const XmbFrame& meta) {
             directory = recordDirectory_;
         }
 
+        // Whatever this session has been carrying. A camera that has sent no
+        // audio by now gets a file with no audio track, which is the honest
+        // description of what there is to record.
+        const AudioTrack audio{audioCodec_, audioRate_, 1};
+
         std::string error;
         if (!recorder_.open(directory / recordingFileName(), meta.codec, width, height, data,
-                            meta.size, error)) {
+                            meta.size, audio, error)) {
             // Whatever went wrong would go wrong again on the next keyframe, so
             // the request is dropped rather than retried into a loop of errors.
             XV_ERROR("{}: cannot record: {}", camera_.label(), error);
@@ -441,18 +528,26 @@ void StreamWorker::serviceRecording(const uint8_t* data, const XmbFrame& meta) {
     }
 
     std::string error;
-    if (!recorder_.write(data, meta.size, meta.pts_ms, meta.keyframe != 0, error)) {
-        XV_ERROR("{}: recording stopped: {}", camera_.label(), error);
-        recordRequested_.store(false, std::memory_order_release);
-        {
-            std::scoped_lock lock(statusMutex_);
-            status_.recordingError = error;
-        }
-        finishRecording();
+    if (!recorder_.writeVideo(data, meta.size, meta.pts_ms, meta.keyframe != 0, error)) {
+        abandonRecording(error);
         return;
     }
 
     publishRecordingStatus();
+}
+
+void StreamWorker::abandonRecording(const std::string& error) {
+    XV_ERROR("{}: recording stopped: {}", camera_.label(), error);
+
+    // Dropping the request rather than retrying: whatever stopped the write,
+    // the next packet would meet it again, and a file with a hole in the middle
+    // is worth less than a short one that ends cleanly.
+    recordRequested_.store(false, std::memory_order_release);
+    {
+        std::scoped_lock lock(statusMutex_);
+        status_.recordingError = error;
+    }
+    finishRecording();
 }
 
 void StreamWorker::finishRecording() {

@@ -41,6 +41,8 @@ constexpr const char* kAlarmLabel = "Alarm";
 constexpr const char* kLightLabel = "LED";
 constexpr const char* kRecordLabel = "Record";
 constexpr const char* kStopLabel = "Stop";
+constexpr const char* kListenLabel = "Listen";
+constexpr const char* kMuteLabel = "Mute";
 
 // Draws an arrow button that reports being held rather than clicked. The camera
 // moves one step per command, so the worker repeats it for as long as this stays
@@ -76,6 +78,12 @@ struct Controls {
     std::string recordingLabel;
     std::string recordingError;
     std::string recordingFile;
+
+    // Listening, which is the same kind of thing: local, immediate, and about
+    // the camera on screen rather than a setting the camera keeps.
+    bool listening = false;
+    std::string audioFormat; // what the camera sends, empty until it sends any
+    std::string audioError;  // why there is no sound, about the PC's speakers
 };
 
 Quick quickControl(const CameraStream& stream, const char* key) {
@@ -94,7 +102,7 @@ Quick quickControl(const CameraStream& stream, const char* key) {
     return quick;
 }
 
-Controls readControls(const CameraStream& stream) {
+Controls readControls(const App& app, const CameraStream& stream) {
     Controls controls;
     controls.arrows = stream.config.motorised();
 
@@ -102,6 +110,12 @@ Controls readControls(const CameraStream& stream) {
         const StreamWorker::Status status = stream.worker->status();
         controls.recording = stream.worker->recordingRequested();
         controls.recordingLive = status.recording;
+
+        controls.listening = status.audible;
+        controls.audioFormat = status.audio;
+        if (controls.listening) {
+            controls.audioError = app.audioError();
+        }
 
         controls.recordingError = status.recordingError;
         controls.recordingFile = status.recordingPath;
@@ -143,6 +157,7 @@ struct PadMetrics {
     ImVec2 toggle;
     ImVec2 segment;
     ImVec2 record;
+    ImVec2 listen;
     ImVec2 size;
 };
 
@@ -166,11 +181,13 @@ PadMetrics measurePad(const Controls& controls) {
     // The record button keeps one width whichever of the two things it says, and
     // the line beside it is measured from a specimen rather than from what it
     // currently reads, so neither the pad nor the button under the pointer moves
-    // while a recording runs.
+    // while a recording runs. The listen button follows the same rule.
     m.record = ImVec2(std::max(buttonWidthFor(kRecordLabel), buttonWidthFor(kStopLabel)), frame);
+    m.listen = ImVec2(std::max(buttonWidthFor(kListenLabel), buttonWidthFor(kMuteLabel)), frame);
 
     // Wide enough for the widest row, so nothing has to be cut short.
-    float width = m.record.x + m.spacing.x + text + ImGui::CalcTextSize("000:00 - 0000 MB").x;
+    float width = m.record.x + m.spacing.x + m.listen.x + m.spacing.x + text +
+                  ImGui::CalcTextSize("000:00 - 0000 MB").x;
     if (controls.arrows) {
         width = std::max(width, arrow * 3.0f + m.spacing.x * 2.0f);
     }
@@ -205,7 +222,7 @@ PadMetrics measurePad(const Controls& controls) {
         content += text + frame; // the "Night vision" label and its buttons
         rows += 2;
     }
-    content += frame; // the record button, which every camera has
+    content += frame; // the record and listen buttons, which every camera has
     rows += 1;
     content += m.spacing.y * static_cast<float>(std::max(rows - 1, 0));
 
@@ -286,6 +303,32 @@ void drawQuickControls(App& app, CameraStream& stream, const PadMetrics& pad,
     ImGui::EndDisabled();
 }
 
+void drawListenControl(App& app, CameraStream& stream, const PadMetrics& pad,
+                       const Controls& controls) {
+    // A camera that is not sending audio has nothing to listen to, and a button
+    // that would silently do nothing is worse than one that says why.
+    const bool silent = controls.audioFormat.empty();
+
+    ImGui::BeginDisabled(silent);
+    if (litButton(controls.listening ? kMuteLabel : kListenLabel, controls.listening, pad.listen,
+                  theme::kAccent)) {
+        app.toggleListening(stream);
+    }
+    ImGui::EndDisabled();
+
+    if (silent) {
+        ImGui::SetItemTooltip("This camera is not sending any audio");
+    } else if (!controls.audioError.empty()) {
+        ImGui::SetItemTooltip("No sound: %s", controls.audioError.c_str());
+    } else if (controls.listening) {
+        ImGui::SetItemTooltip("Listening to %s. Use the Windows volume mixer to set the level.",
+                              controls.audioFormat.c_str());
+    } else {
+        ImGui::SetItemTooltip("Hear this camera (%s). Only one camera plays at a time.",
+                              controls.audioFormat.c_str());
+    }
+}
+
 void drawRecordControl(App& app, CameraStream& stream, const PadMetrics& pad,
                        const Controls& controls) {
     if (litButton(controls.recording ? kStopLabel : kRecordLabel, controls.recording, pad.record,
@@ -301,8 +344,11 @@ void drawRecordControl(App& app, CameraStream& stream, const PadMetrics& pad,
         ImGui::SetItemTooltip("Waiting for a keyframe, which is where the file has to start");
     } else {
         ImGui::SetItemTooltip("Save this stream to a Matroska file, exactly as the camera "
-                              "sends it");
+                              "sends it, with its audio");
     }
+
+    ImGui::SameLine();
+    drawListenControl(app, stream, pad, controls);
 
     if (controls.recordingLabel.empty()) {
         return;
@@ -338,7 +384,7 @@ void drawPtzOverlay(App& app, CameraStream& stream, float x, float y, float widt
         app.loadSettingsFor(stream);
     }
 
-    const Controls controls = readControls(stream);
+    const Controls controls = readControls(app, stream);
     const PadMetrics pad = measurePad(controls);
 
     // On a small tile the pad would cover the picture it is meant to aim, so it

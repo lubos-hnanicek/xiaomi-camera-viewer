@@ -100,7 +100,8 @@ int xmb_stream_read(void* handle, unsigned char* buf, int cap, XmbFrame* meta);
  * Methods (JSON {"method":..., ...}):
  *   ptz.step  {direction:"up"|"down"|"left"|"right"}
  *   ptz.raw   {body:"<motor payload>"}  diagnostic, for an unknown model
- *   stats     {} -> {ok, frames, bytes, dropped, replies, last_reply}
+ *   stats     {} -> {ok, frames, bytes, dropped, replies, last_reply,
+ *                    audio_asked}
  *
  * The camera moves a fixed step per ptz.step and stops by itself, so holding a
  * direction down means repeating the call and there is no stop to send.

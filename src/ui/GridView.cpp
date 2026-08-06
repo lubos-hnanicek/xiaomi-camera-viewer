@@ -171,23 +171,35 @@ void drawTile(App& app, size_t index, CameraStream& stream, ImVec2 size, bool fo
         }
 
         // A recording has to be visible on a tile nobody is looking at, because
-        // that is exactly when it is forgotten about.
+        // that is exactly when it is forgotten about. The same goes for which
+        // camera the sound is coming from, which is otherwise a guess.
         std::string recording;
         if (status.recording) {
             const auto seconds = status.recordedMs / 1000;
             recording = std::format("REC {}:{:02}", seconds / 60, seconds % 60);
         }
 
-        if (!detail.empty() || !recording.empty()) {
+        const char* audible = status.audible ? "AUDIO" : "";
+
+        if (!detail.empty() || !recording.empty() || status.audible) {
             constexpr float kGap = 10.0f;
             const float detailWidth = detail.empty() ? 0.0f : ImGui::CalcTextSize(detail.c_str()).x;
             const float recordingWidth =
                 recording.empty() ? 0.0f : ImGui::CalcTextSize(recording.c_str()).x + kGap;
+            const float audibleWidth =
+                status.audible ? ImGui::CalcTextSize(audible).x + kGap : 0.0f;
 
-            ImGui::SetCursorScreenPos(
-                ImVec2(tileOrigin.x + available.x - detailWidth - recordingWidth - 8.0f,
-                       tileOrigin.y + videoHeight + 4.0f));
+            ImGui::SetCursorScreenPos(ImVec2(tileOrigin.x + available.x - detailWidth -
+                                                 recordingWidth - audibleWidth - 8.0f,
+                                             tileOrigin.y + videoHeight + 4.0f));
 
+            if (status.audible) {
+                ImGui::TextColored(theme::kAccent, "%s", audible);
+                ImGui::SetItemTooltip("This is the camera you are hearing");
+                if (!recording.empty() || !detail.empty()) {
+                    ImGui::SameLine(0.0f, kGap);
+                }
+            }
             if (!recording.empty()) {
                 ImGui::TextColored(theme::kFailed, "%s", recording.c_str());
                 if (!detail.empty()) {
@@ -242,6 +254,9 @@ void handleKeys(App& app, size_t reachable) {
     }
     if (ImGui::IsKeyPressed(ImGuiKey_R)) {
         app.toggleRecording(*streams[static_cast<size_t>(selected)]);
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_A)) {
+        app.toggleListening(*streams[static_cast<size_t>(selected)]);
     }
 
     // Tab moves to the next camera, shift-Tab to the previous one, both wrapping

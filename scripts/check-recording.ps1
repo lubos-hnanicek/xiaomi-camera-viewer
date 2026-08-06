@@ -5,8 +5,12 @@
 .DESCRIPTION
     Recording is one of the few features that cannot be judged from a screenshot:
     the question is whether the file a player opens contains the camera's own
-    stream, at the right timing, and nothing re-encoded. So this drives the real
+    streams, at the right timing, and nothing re-encoded. So this drives the real
     app against a real camera, then hands the result to ffprobe.
+
+    Both tracks are checked. The audio one is the easier of the two to get
+    subtly wrong -- a track that is present, well-formed and silent looks fine
+    to ffprobe -- so the level is measured as well as the format.
 
     The app is closed with WM_CLOSE rather than killed, because a killed process
     leaves the Matroska file without its trailer and that would be the harness's
@@ -56,6 +60,24 @@ $exe = Join-Path $repo 'build\msvc\RelWithDebInfo\XiaomiViewer.exe'
 $ffprobe = Join-Path $repo 'third_party\ffmpeg\bin\ffprobe.exe'
 $ffmpeg = Join-Path $repo 'third_party\ffmpeg\bin\ffmpeg.exe'
 if (-not (Test-Path $exe)) { throw "Not built: $exe" }
+
+# Runs ffmpeg and returns everything it said, stderr included.
+#
+# ffmpeg reports on stderr whether or not it succeeded, and while
+# $ErrorActionPreference is Stop, PowerShell turns anything a native command
+# writes there into a terminating error. That would fail this check on the
+# warnings it exists to show.
+# Takes ffmpeg's arguments through $args rather than a param block, because a
+# declared parameter list would try to bind -i as -InformationAction.
+function Invoke-FFmpeg {
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $ffmpeg -hide_banner -nostats @args 2>&1 | ForEach-Object { "$_" }
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+}
 
 $recordings = Join-Path ([Environment]::GetFolderPath('MyVideos')) 'XiaomiViewer'
 $before = if (Test-Path $recordings) { Get-ChildItem $recordings -Filter *.mkv } else { @() }
@@ -108,6 +130,13 @@ function Save-Shot($path) {
 
 Save-Shot "$Out-idle.png"
 
+# Listening is not needed to record audio, but it exercises the decoder against
+# the same packets the recorder is storing, so a stream that cannot be played
+# fails here rather than in someone's player.
+Write-Host '==> listening with A'
+[System.Windows.Forms.SendKeys]::SendWait('a')
+Start-Sleep -Seconds 2
+
 Write-Host '==> starting the recording with R'
 [System.Windows.Forms.SendKeys]::SendWait('r')
 Start-Sleep -Seconds ([Math]::Min(6, $Seconds))
@@ -131,16 +160,55 @@ $after = Get-ChildItem $recordings -Filter *.mkv
 $new = $after | Where-Object { $before.Name -notcontains $_.Name }
 if (-not $new) { throw "No recording appeared in $recordings" }
 
+$failed = $false
+
 foreach ($file in $new) {
     Write-Host ''
     Write-Host "==> $($file.Name)  $([Math]::Round($file.Length / 1MB, 1)) MB" -ForegroundColor Cyan
     & $ffprobe -hide_banner -v error -show_entries `
-        'format=format_name,duration,bit_rate:stream=codec_name,profile,width,height,avg_frame_rate,nb_frames' `
+        'format=format_name,duration,bit_rate:stream=codec_type,codec_name,profile,width,height,avg_frame_rate,nb_frames,sample_rate,channels' `
         -of default=noprint_wrappers=1 $file.FullName
 
     # Decoding every frame is the only proof that the remux produced a stream a
     # player can actually follow: a file can be well-formed and still not decode.
     Write-Host '--- decoding every frame ---'
-    & $ffmpeg -hide_banner -v warning -i $file.FullName -f null - 2>&1 | ForEach-Object { $_ }
-    if ($LASTEXITCODE -eq 0) { Write-Host 'decoded cleanly' -ForegroundColor Green }
+    Invoke-FFmpeg -v warning -i $file.FullName -f null - | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host 'decoded cleanly' -ForegroundColor Green
+    } else {
+        Write-Host 'the file did not decode' -ForegroundColor Red
+        $failed = $true
+    }
+
+    Write-Host '--- audio ---'
+    $codec = (& $ffprobe -hide_banner -v error -select_streams a:0 `
+            -show_entries stream=codec_name -of csv=p=0 $file.FullName) -join ''
+    if (-not $codec) {
+        Write-Host 'no audio track' -ForegroundColor Red
+        $failed = $true
+        continue
+    }
+    Write-Host "audio track: $codec" -ForegroundColor Green
+
+    # A track can be present, well-formed and completely silent, which is what a
+    # wrong Opus header or a mis-timed packet stream tends to produce, so the
+    # level is the assertion rather than the presence.
+    $levels = Invoke-FFmpeg -v info -i $file.FullName -map 'a:0' -af volumedetect -f null -
+    $peak = @($levels | Select-String -Pattern 'max_volume: (-?[\d.]+) dB')
+    if ($peak.Count -eq 0) {
+        Write-Host 'the audio track could not be measured' -ForegroundColor Red
+        $levels | ForEach-Object { Write-Host $_ }
+        $failed = $true
+        continue
+    }
+
+    $db = [double]$peak[0].Matches[0].Groups[1].Value
+    if ($db -le -90.0) {
+        Write-Host "the audio track is silent (peak $db dB)" -ForegroundColor Red
+        $failed = $true
+    } else {
+        Write-Host "audio peaks at $db dB" -ForegroundColor Green
+    }
 }
+
+if ($failed) { throw 'The recording did not carry usable audio.' }

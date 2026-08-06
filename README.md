@@ -17,8 +17,10 @@ The pictures in the tiles are stand-ins rather than real camera output.
 - Live view of several cameras at once, in a 1x1, 2x2, 3x3 or automatic grid
 - Hardware HEVC and H.264 decoding through Direct3D 11 video acceleration
 - Pan and tilt with a hold-to-move pad
-- Recording to Matroska (`.mkv`) files, remuxed rather than re-encoded, so a
-  recording is the camera's own stream at its own quality and costs no CPU
+- Listening to a camera's microphone, one camera at a time
+- Recording to Matroska (`.mkv`) files, picture and sound both remuxed rather
+  than re-encoded, so a recording is the camera's own stream at its own quality
+  and costs no CPU
 - Camera settings driven by the device's own MIoT specification: night vision,
   HDR, image flip, motion detection and sensitivity, tracking, fill light,
   siren, indicator LED, recording mode and SD card status
@@ -27,9 +29,9 @@ The pictures in the tiles are stand-ins rather than real camera output.
 - Sign-in handles captchas and two-step verification; the resulting token is
   stored encrypted with your Windows account key
 
-Out of scope for now: playback of recordings from the camera's SD card, two-way
-audio, and audio in recordings. The bridge already surfaces audio packets, so
-listening in can be added without redesign.
+Out of scope for now: playback of recordings from the camera's SD card, and
+two-way audio. Talking back needs an encoder and the return channel worked out;
+listening does not, and is implemented.
 
 Playback is out of scope because the cameras will not discuss it, not because
 nobody has written the UI. MISS names a playback request, response and speed
@@ -67,9 +69,9 @@ as soon as a camera is added.
 Click a tile to select it, or walk through them with `Tab` and `Shift+Tab`.
 Double-click a tile, or press `F`, to focus a single camera; `Esc` goes back. The
 arrow keys pan and tilt the selected camera, holding the movement for as long as
-the key is down, and `R` starts or stops recording it. While the live grid is on
-screen these keys belong to the cameras, so Tab does not walk the toolbar there
-the way it does on the other screens.
+the key is down, `R` starts or stops recording it, and `A` listens to it. While
+the live grid is on screen these keys belong to the cameras, so Tab does not walk
+the toolbar there the way it does on the other screens.
 
 The focused tile gets a control pad in its bottom-left corner. Its arrows pan and
 tilt, and they are left out for a lens with no motor behind it, which the fixed
@@ -77,6 +79,28 @@ second lens of a CW500 is. Under them are the three settings worth reaching
 without leaving the picture -- the audible alarm, the fill light (the `LED`
 button) and night vision -- and a camera that does not offer one of them does not
 show it. Everything else lives in the settings panel.
+
+## Listening
+
+`Listen` on the pad, or `A`, plays the selected camera's microphone. One camera
+is audible at a time: pressing `A` on another moves the sound rather than adding
+to it, because four cameras at once is noise nobody can pick a sound out of. The
+audible tile is marked `AUDIO` in its footer, so it can be found without going
+tile to tile, and the level belongs to the Windows volume mixer, where the app
+appears as its own session.
+
+Every session asks the camera for audio whether or not anyone is listening,
+which is what makes the button instant: it costs a few kilobytes a second next
+to the video's megabits, and the alternative is renegotiating the session on
+every press. Only the camera being listened to is decoded, so a muted grid costs
+nothing at all. `audio: false` for a camera in the configuration file turns the
+request off for a model that dislikes being asked; the pad then says the camera
+is not sending any audio.
+
+The cameras tested here send Opus at 16 kHz, mono. G.711 and raw PCM are
+handled too, since MISS names them, but no camera has been seen to use them.
+`scripts/probe-audio.ps1` reports what a camera actually sends, which is how
+that was settled and how a model that sends something else would be found.
 
 ## Windows Firewall
 
@@ -122,15 +146,20 @@ other devices' replies did get through.
 folder** goes there, and `recordings_dir` in the configuration file moves it.
 
 Nothing is re-encoded: the camera's own H.265 or H.264 access units are put into
-a Matroska container as they arrive. A recording is therefore pixel-identical to
-what the camera sent, at whatever bitrate and frame rate it chose, and it costs a
-few percent of one core rather than a GPU encoder.
+a Matroska container as they arrive, and its audio packets go into a second
+track beside them, untouched in the same way. A recording is therefore
+pixel-identical to what the camera sent, at whatever bitrate and frame rate it
+chose, and it costs a few percent of one core rather than a GPU encoder. Sound
+is recorded whether or not anyone is listening at the time, since it is the same
+packets either way.
 
-Two consequences of recording the stream rather than a re-encode of it. A file
+Three consequences of recording the stream rather than a re-encode of it. A file
 can only begin on a keyframe, so recording starts within a second or two of
-being asked rather than instantly; the pad says `starting` until it does. And a
+being asked rather than instantly; the pad says `starting` until it does. A
 session that drops ends its file and the reconnection opens a new one, because
-two sessions do not share a timeline. Recordings are video only for now.
+two sessions do not share a timeline. And the audio track has to be declared
+when the file is created, so a recording started before the camera has sent its
+first audio packet -- a second or so after connecting -- is video only.
 
 Only one copy runs at a time, per signed-in user. Launching it again brings the
 running one to the front rather than starting a second, which would compete with
@@ -280,7 +309,7 @@ for working out a model that does not respond to the payload above.
   reason: launching it again brings the running copy to the front instead.
 - Cameras negotiating a transport other than CS2 (older TUTK-based models) are
   rejected with a clear message rather than silently failing.
-- Audio is received and counted but not played.
+- Audio is mono, and playing it is one-way. There is no talkback.
 
 ## Credits and licensing
 

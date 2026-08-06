@@ -145,6 +145,7 @@ func xmb_stream_read(handle unsafe.Pointer, buf *C.uchar, capacity C.int, meta *
 		if frame.Keyframe {
 			meta.keyframe = 1
 		}
+		meta.sample_rate = C.int32_t(frame.SampleRate)
 		meta.pts_ms = C.int64_t(frame.PTS)
 		meta.sequence = C.uint32_t(frame.Sequence)
 		meta.size = C.uint32_t(len(frame.Data))

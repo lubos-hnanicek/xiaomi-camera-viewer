@@ -27,7 +27,12 @@ struct CameraConfig {
     std::string quality;   // "", "auto", "sd", "hd" or "0".."5"
     std::string transport; // "", "udp" or "tcp"
     bool enabled = true;
-    bool audio = false;
+    // Whether to ask the camera for audio at all. On by default: an audio
+    // stream is a few kilobytes a second next to the video's megabits, and
+    // asking for it up front is what lets listening and recording be turned on
+    // without renegotiating the session. Turning it off in config.json is the
+    // escape hatch for a model that dislikes being asked.
+    bool audio = true;
 
     // Display name that stays useful when a camera has no name set.
     [[nodiscard]] std::string label() const;

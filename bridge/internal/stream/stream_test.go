@@ -50,6 +50,68 @@ func TestMotorOperationRejectsUnknown(t *testing.T) {
 	}
 }
 
+// The codec ids on the wire and the ones the ABI uses are two different
+// numberings, and an audio codec left out of the mapping is dropped silently
+// rather than reported, which is how audio went unnoticed for so long.
+func TestToFrameAudio(t *testing.T) {
+	tests := []struct {
+		name      string
+		codecID   uint32
+		flags     uint32
+		wantCodec int32
+		wantRate  int32
+	}{
+		{"A-law at 8 kHz", miss.CodecPCMA, 0, CodecPCMA, 8000},
+		{"A-law at 16 kHz", miss.CodecPCMA, 1 << 3, CodecPCMA, 16000},
+		{"mu-law", miss.CodecPCMU, 0, CodecPCMU, 8000},
+		{"PCM", miss.CodecPCM, 0, CodecPCM, 8000},
+		{"Opus at 16 kHz", miss.CodecOPUS, 1 << 3, CodecOpus, 16000},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			frame := toFrame(&miss.Packet{CodecID: tt.codecID, Flags: tt.flags, Payload: []byte{1}})
+			if frame == nil {
+				t.Fatal("the packet was dropped")
+			}
+			if frame.Kind != KindAudio {
+				t.Errorf("kind = %d, want %d", frame.Kind, KindAudio)
+			}
+			if frame.Codec != tt.wantCodec {
+				t.Errorf("codec = %d, want %d", frame.Codec, tt.wantCodec)
+			}
+			if frame.SampleRate != tt.wantRate {
+				t.Errorf("sample rate = %d, want %d", frame.SampleRate, tt.wantRate)
+			}
+			if frame.Keyframe {
+				t.Error("an audio packet was marked as a keyframe")
+			}
+		})
+	}
+}
+
+func TestToFrameDropsUnknownCodec(t *testing.T) {
+	if frame := toFrame(&miss.Packet{CodecID: 4242, Payload: []byte{1}}); frame != nil {
+		t.Errorf("a codec nothing can decode was passed on as kind %d", frame.Kind)
+	}
+}
+
+// A sample rate on a video frame would be read as one by anything that trusts
+// the field, so the flags are only interpreted for audio.
+func TestToFrameLeavesVideoWithoutASampleRate(t *testing.T) {
+	frame := toFrame(&miss.Packet{
+		CodecID: miss.CodecH265,
+		Flags:   1 << 3,
+		Payload: annexB([]byte{19 << 1, 0x01}),
+	})
+	if frame == nil {
+		t.Fatal("the packet was dropped")
+	}
+	if frame.SampleRate != 0 {
+		t.Errorf("sample rate = %d, want 0", frame.SampleRate)
+	}
+}
+
 // annexB builds a byte stream of NAL units with 4-byte start codes.
 func annexB(nals ...[]byte) []byte {
 	var out []byte

@@ -12,6 +12,8 @@
 
 #include "bridge/Bridge.h"
 #include "config/Config.h"
+#include "media/AudioDecoder.h"
+#include "media/AudioPlayer.h"
 #include "media/Recorder.h"
 #include "media/VideoDecoder.h"
 #include "render/VideoFrameTexture.h"
@@ -52,6 +54,12 @@ public:
         int width = 0;
         int height = 0;
         int attempt = 0;
+
+        // What the camera is sending on the audio track, named for a tooltip,
+        // and empty until the first audio frame of the session arrives.
+        std::string audio;
+        // Whether this camera is the one being listened to. Only one is.
+        bool audible = false;
 
         // Recording, as the UI needs to describe it: whether a file is open,
         // which one, how much has gone into it, and how much footage that is.
@@ -98,6 +106,19 @@ public:
         return recordRequested_.load(std::memory_order_acquire);
     }
 
+    // Sends this camera's audio to `speaker` until muted. The player is shared
+    // between all cameras and only one may hold it, which the app enforces by
+    // muting the previous camera before handing it over.
+    //
+    // Decoding happens on the reader thread and only while listening, so a
+    // muted camera costs nothing beyond receiving the packets it was already
+    // receiving.
+    void listen(AudioPlayer* speaker);
+    void mute();
+    [[nodiscard]] bool listening() const {
+        return speaker_.load(std::memory_order_acquire) != nullptr;
+    }
+
 private:
     void run(D3D11Context* gpu);
     bool session(D3D11Context& gpu);
@@ -109,9 +130,16 @@ private:
     void sendPtzStep(const std::string& direction);
     void setCurrentStream(Bridge::Stream stream);
 
+    // Everything one audio access unit is used for: remembering the format,
+    // feeding the file if one is open, and feeding the speaker if this camera
+    // is the one being listened to.
+    void serviceAudio(const uint8_t* data, const XmbFrame& meta);
+
     // Keeps the recorder in step with what the UI asked for, and writes this
     // access unit if a file is open. Called for every video frame.
     void serviceRecording(const uint8_t* data, const XmbFrame& meta);
+    // Ends a recording that cannot be continued, and says why on the tile.
+    void abandonRecording(const std::string& error);
     void finishRecording();
     void publishRecordingStatus();
     [[nodiscard]] std::string recordingFileName() const;
@@ -145,6 +173,18 @@ private:
     // hold expires unless it is renewed.
     std::string ptzHeld_;
     std::chrono::steady_clock::time_point ptzHeldUntil_{};
+
+    // The audio format seen this session. The recorder needs it before it can
+    // write a header, so it is remembered from the first audio frame rather
+    // than asked for when a recording starts. Reader thread only.
+    int audioCodec_ = 0;
+    int audioRate_ = 0;
+
+    // Where decoded audio goes, or null when this camera is not the audible
+    // one. Set from the UI thread and read by the reader thread, which is the
+    // only one that touches the decoder behind it.
+    std::atomic<AudioPlayer*> speaker_{nullptr};
+    AudioDecoder audioDecoder_;
 
     // Recording lives entirely on the reader thread, which is where the access
     // units are. The UI only sets the wish and reads the published status.

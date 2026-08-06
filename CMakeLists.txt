@@ -101,6 +101,9 @@ add_executable(XiaomiViewer WIN32
     src/bridge/Bridge.cpp
     src/cloud/Miot.cpp
     src/config/Config.cpp
+    src/media/AudioDecoder.cpp
+    src/media/AudioFormat.cpp
+    src/media/AudioPlayer.cpp
     src/media/Recorder.cpp
     src/media/StreamWorker.cpp
     src/media/VideoDecoder.cpp
@@ -126,6 +129,7 @@ target_link_libraries(XiaomiViewer PRIVATE
     nlohmann_json
     crypt32        # DPAPI, for the account token at rest
     windowscodecs  # WIC, to decode the sign-in captcha
+    ole32          # WASAPI, to play the camera's audio
     shlwapi
     shell32)
 

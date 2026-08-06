@@ -21,6 +21,15 @@ using encoding::base64Encode;
 
 constexpr const char* kTokenPrefix = "dpapi:";
 
+// Config format version. It exists to tell a value the user chose from one the
+// app merely wrote, which only matters when a default changes.
+//
+//   1  audio is requested by default, so an "audio": false written by an
+//      earlier build -- which had no way to write anything else -- is history
+//      rather than a preference.
+constexpr int kConfigVersion = 1;
+constexpr int kAudioVersion = 1;
+
 // The token is protected with the current user's DPAPI key, so the config file
 // is useless if copied to another machine or read by another account. That is
 // the right bar here: it is a convenience cache, not a secret store.
@@ -169,6 +178,12 @@ AppConfig AppConfig::load() {
         return config;
     }
 
+    // A file written before audio existed says audio is off for every camera,
+    // because that was the only value the app ever wrote. Reading it as a
+    // decision would leave every existing installation silent forever, so the
+    // version says which stored values carry intent and which are just history.
+    const int version = root.value("version", 0);
+
     if (const auto it = root.find("account"); it != root.end() && it->is_object()) {
         config.account.userId = it->value("user_id", std::string{});
         config.account.region = it->value("region", std::string{});
@@ -189,7 +204,7 @@ AppConfig AppConfig::load() {
             camera.quality = entry.value("quality", std::string{});
             camera.transport = entry.value("transport", std::string{});
             camera.enabled = entry.value("enabled", true);
-            camera.audio = entry.value("audio", false);
+            camera.audio = version >= kAudioVersion ? entry.value("audio", true) : true;
             if (!camera.did.empty()) {
                 config.cameras.push_back(std::move(camera));
             }
@@ -209,6 +224,14 @@ AppConfig AppConfig::load() {
     config.recordingsDir = root.value("recordings_dir", std::string{});
 
     XV_INFO("loaded config with {} camera(s) from {}", config.cameras.size(), path.string());
+
+    // Written back at once rather than on the next change, so the migration
+    // happens once and a later edit of the file is read as intended.
+    if (version < kConfigVersion) {
+        XV_INFO("upgrading the config from version {} to {}", version, kConfigVersion);
+        config.save();
+    }
+
     return config;
 }
 
@@ -236,6 +259,7 @@ bool AppConfig::save() const {
         });
     }
     root["cameras"] = std::move(list);
+    root["version"] = kConfigVersion;
     root["layout"] = static_cast<int>(layout);
     root["ui_scale"] = uiScale;
 

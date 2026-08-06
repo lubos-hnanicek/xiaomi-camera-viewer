@@ -551,6 +551,7 @@ int App::run(HINSTANCE instance, int showCommand) {
 
     XV_INFO("shutting down");
     stopStreams();
+    audio_.stop();
     // Read before the window goes anywhere, and saved along with everything else.
     rememberPlacement();
     config_.save();
@@ -708,10 +709,19 @@ void App::drawMenuBar() {
                 toggleRecording(*focused);
             }
             ImGui::SetItemTooltip("Writes the camera's own stream to a Matroska file without "
-                                  "re-encoding it.");
+                                  "re-encoding it, audio included.");
             if (ImGui::MenuItem("Open recordings folder")) {
                 openRecordingsFolder();
             }
+
+            ImGui::Separator();
+
+            const bool audible = focused != nullptr && listening(*focused);
+            if (ImGui::MenuItem(audible ? "Mute" : "Listen to selected camera", "A", false,
+                                focused != nullptr)) {
+                toggleListening(*focused);
+            }
+            ImGui::SetItemTooltip("Only one camera is audible at a time.");
             ImGui::EndMenu();
         }
 
@@ -1066,6 +1076,7 @@ void App::removeCamera(size_t index) {
     const std::string label = streams_[index]->config.label();
 
     if (streams_[index]->worker) {
+        streams_[index]->worker->mute();
         streams_[index]->worker->stop();
     }
 
@@ -1107,6 +1118,7 @@ void App::startStreams() {
 }
 
 void App::stopStreams() {
+    muteAll();
     for (auto& stream : streams_) {
         if (stream->worker) {
             stream->worker->stop();
@@ -1140,6 +1152,47 @@ void App::toggleRecording(CameraStream& stream) {
 
 bool App::recording(const CameraStream& stream) const {
     return stream.worker && stream.worker->recordingRequested();
+}
+
+void App::toggleListening(CameraStream& stream) {
+    if (!stream.worker) {
+        return;
+    }
+
+    if (stream.worker->listening()) {
+        stream.worker->mute();
+        XV_INFO("stopped listening to {}", stream.config.label());
+        return;
+    }
+
+    muteAll();
+
+    // Started on first use rather than at launch, so a machine with no sound
+    // card, or a user who never listens, never opens an audio device at all.
+    std::string error;
+    if (!audio_.start(error)) {
+        XV_ERROR("{}", error);
+        return;
+    }
+
+    // Whatever the previous camera left buffered belongs to the previous
+    // camera, and playing it first would be heard as a stutter on switching.
+    audio_.reset();
+
+    stream.worker->listen(&audio_);
+    XV_INFO("listening to {}", stream.config.label());
+}
+
+bool App::listening(const CameraStream& stream) const {
+    return stream.worker && stream.worker->listening();
+}
+
+void App::muteAll() {
+    for (auto& stream : streams_) {
+        if (stream->worker) {
+            stream->worker->mute();
+        }
+    }
 }
 
 void App::openRecordingsFolder() const {

@@ -25,6 +25,8 @@ const (
 	CodecH265 = 2
 	CodecPCMA = 3
 	CodecOpus = 4
+	CodecPCM  = 5
+	CodecPCMU = 6
 )
 
 // ErrClosed is returned by Read once the session has finished.
@@ -38,7 +40,10 @@ type Frame struct {
 	Keyframe bool
 	PTS      int64 // milliseconds
 	Sequence uint32
-	Data     []byte
+	// SampleRate is meaningful for audio only, and is the rate the camera
+	// declares in the packet flags rather than one assumed from the codec.
+	SampleRate int32
+	Data       []byte
 }
 
 // Config describes one session.
@@ -65,6 +70,10 @@ type Stats struct {
 	// the channel needs draining at all, since nothing here reads the contents.
 	Replies   uint64 `json:"replies"`
 	LastReply string `json:"last_reply"`
+	// Whether the separate audio command had to be sent because enableaudio
+	// alone produced no audio. Diagnostic: it says which of the two a model
+	// needs, which is not documented anywhere.
+	AudioAsked bool `json:"audio_asked"`
 }
 
 // reply is one message from the command channel, in the form it arrived.
@@ -76,6 +85,10 @@ type reply struct {
 type Session struct {
 	client *miss.Client
 
+	// Whether this session asked the camera for audio, which is what makes the
+	// silence of an audio-less session worth acting on.
+	wantAudio bool
+
 	frames chan *Frame
 	done   chan struct{}
 
@@ -86,6 +99,7 @@ type Session struct {
 	byteCount  atomic.Uint64
 	dropped    atomic.Uint64
 	replyCount atomic.Uint64
+	audioAsked atomic.Bool
 	lastReply  atomic.Pointer[reply]
 
 	replyMu  sync.Mutex
@@ -126,6 +140,7 @@ func Open(cfg Config) (*Session, error) {
 
 	s := &Session{
 		client:     client,
+		wantAudio:  cfg.Audio,
 		frames:     make(chan *Frame, queueDepth),
 		done:       make(chan struct{}),
 		Protocol:   client.Protocol(),
@@ -188,8 +203,19 @@ func (s *Session) Replies() []string {
 	return out
 }
 
+// audioGrace is how long a session that asked for audio waits for the first
+// audio packet before asking again with the separate audio command.
+const audioGrace = 3 * time.Second
+
 func (s *Session) reader() {
 	defer close(s.frames)
+
+	// Some models answer enableaudio in the start command and some appear to
+	// want the separate 0x104 as well. Which is which is not documented, so the
+	// second command is sent only when the first one has visibly not worked.
+	audioSeen := !s.wantAudio
+	audioAsked := false
+	audioDeadline := time.Now().Add(audioGrace)
 
 	for {
 		// A camera that has gone quiet for ten seconds is gone; without this the
@@ -205,6 +231,17 @@ func (s *Session) reader() {
 		frame := toFrame(pkt)
 		if frame == nil {
 			continue // a codec we do not handle
+		}
+
+		if !audioSeen {
+			switch {
+			case frame.Kind == KindAudio:
+				audioSeen = true
+			case !audioAsked && time.Now().After(audioDeadline):
+				audioAsked = true
+				s.audioAsked.Store(true)
+				_ = s.client.StartAudio()
+			}
 		}
 
 		s.frameCount.Add(1)
@@ -248,8 +285,16 @@ func toFrame(pkt *miss.Packet) *Frame {
 		f.Kind, f.Codec = KindAudio, CodecPCMA
 	case miss.CodecOPUS:
 		f.Kind, f.Codec = KindAudio, CodecOpus
+	case miss.CodecPCM:
+		f.Kind, f.Codec = KindAudio, CodecPCM
+	case miss.CodecPCMU:
+		f.Kind, f.Codec = KindAudio, CodecPCMU
 	default:
 		return nil
+	}
+
+	if f.Kind == KindAudio {
+		f.SampleRate = int32(pkt.SampleRate())
 	}
 
 	return f
@@ -329,10 +374,11 @@ func (s *Session) Unhandled() []string {
 
 func (s *Session) Stats() Stats {
 	st := Stats{
-		Frames:  s.frameCount.Load(),
-		Bytes:   s.byteCount.Load(),
-		Dropped: s.dropped.Load(),
-		Replies: s.replyCount.Load(),
+		Frames:     s.frameCount.Load(),
+		Bytes:      s.byteCount.Load(),
+		Dropped:    s.dropped.Load(),
+		Replies:    s.replyCount.Load(),
+		AudioAsked: s.audioAsked.Load(),
 	}
 	if last := s.lastReply.Load(); last != nil {
 		st.LastReply = fmt.Sprintf("cmd=%#x %s", last.cmd, last.body)
