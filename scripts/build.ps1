@@ -38,6 +38,29 @@ function Write-Step($Message) {
     Write-Host "==> $Message" -ForegroundColor Cyan
 }
 
+# Zips files under one named directory rather than at the root, so unpacking
+# cannot spill them into whatever directory the archive was opened in, and so
+# that unpacking the symbols over the application puts the .pdb beside the
+# executable, which is where a debugger goes looking for it.
+function Write-Archive($Path, $Root, $Base, $Files) {
+    if (Test-Path $Path) { Remove-Item $Path -Force }
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [System.IO.Compression.ZipFile]::Open($Path, 'Create')
+    try {
+        foreach ($file in $Files) {
+            $relative = $file.FullName.Substring($Base.Length + 1).Replace('\', '/')
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                $archive, $file.FullName, "$Root/$relative",
+                [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+        }
+    } finally {
+        $archive.Dispose()
+    }
+
+    Write-Step "Wrote $Path ($([int]((Get-Item $Path).Length / 1MB)) MB)"
+}
+
 # --- Visual Studio environment ----------------------------------------------
 
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -147,11 +170,6 @@ if ($Package) {
         if (Test-Path $path) { Copy-Item $path $dist }
     }
 
-    if ($Configuration -ne 'Debug') {
-        # Ship symbols alongside so a crash report from a user is actionable.
-        Copy-Item (Join-Path $outputDir 'XiaomiViewer.pdb') $dist -ErrorAction SilentlyContinue
-    }
-
     Write-Step "Packaged $dist"
 
     # The app is handed out as a zip that is unpacked and run, so make the zip
@@ -159,7 +177,7 @@ if ($Package) {
     #
     # A Debug build is not something to hand to anyone, so it stops at the
     # staged folder. Release and RelWithDebInfo of the same version write the
-    # same file on purpose: only one of them is the release, and it is the one
+    # same files on purpose: only one of them is the release, and it is the one
     # that was packaged last.
     if ($Configuration -ne 'Debug') {
         $projectFile = Join-Path $RepoRoot 'CMakeLists.txt'
@@ -167,27 +185,21 @@ if ($Package) {
             throw "No project version found in $projectFile"
         }
         $version = $Matches[1]
+        $root = "XiaomiViewer-$version"
 
-        $zipPath = Join-Path $RepoRoot "dist\XiaomiViewer-$version-win-x64.zip"
-        if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+        Write-Archive -Path (Join-Path $RepoRoot "dist\$root-win-x64.zip") -Root $root `
+            -Base $dist -Files (Get-ChildItem -File -Recurse $dist)
 
-        # Entries are written under a version-named directory, so unpacking
-        # cannot spill a dozen files into wherever the zip was opened. The
-        # staged folder is named after the configuration instead, so two of
-        # them can sit side by side, and that is not a name to give a user.
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        $archive = [System.IO.Compression.ZipFile]::Open($zipPath, 'Create')
-        try {
-            foreach ($file in Get-ChildItem -File -Recurse $dist) {
-                $relative = $file.FullName.Substring($dist.Length + 1).Replace('\', '/')
-                [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
-                    $archive, $file.FullName, "XiaomiViewer-$version/$relative",
-                    [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
-            }
-        } finally {
-            $archive.Dispose()
+        # Symbols go in their own archive. The .pdb compresses to more than a
+        # quarter of the download and nobody running the app needs it, but a
+        # crash report is unreadable without the one matching the build it came
+        # from, so it has to be kept and published rather than simply dropped.
+        $symbols = Get-Item (Join-Path $outputDir 'XiaomiViewer.pdb') -ErrorAction SilentlyContinue
+        if ($symbols) {
+            Write-Archive -Path (Join-Path $RepoRoot "dist\$root-win-x64-symbols.zip") -Root $root `
+                -Base $symbols.DirectoryName -Files @($symbols)
+        } else {
+            Write-Warning "No XiaomiViewer.pdb in $outputDir; the symbols archive was not written."
         }
-
-        Write-Step "Wrote $zipPath ($([int]((Get-Item $zipPath).Length / 1MB)) MB)"
     }
 }
