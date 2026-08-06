@@ -1,0 +1,6 @@
+#include "app/Resources.h"
+
+// Explorer, the taskbar, Alt+Tab and the window itself all end up here. The
+// group holds every size from 16 to 256 so nothing has to be scaled; it is
+// drawn by scripts/make-icon.ps1, which is the icon's real source.
+IDI_APPICON ICON "app/XiaomiViewer.ico"

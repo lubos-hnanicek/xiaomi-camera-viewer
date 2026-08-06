@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.25)
 project(XiaomiViewer
     VERSION 0.1.0
     DESCRIPTION "Native Windows viewer and controller for Xiaomi CW400/CW500 cameras"
-    LANGUAGES CXX)
+    LANGUAGES CXX RC)
 
 if(NOT WIN32)
     message(FATAL_ERROR "XiaomiViewer targets Windows only.")
@@ -115,9 +115,15 @@ add_executable(XiaomiViewer WIN32
     src/ui/PtzOverlay.cpp
     src/ui/SettingsView.cpp
     src/util/Encoding.cpp
-    src/app/app.manifest)
+    src/app/app.manifest
+    src/app/app.rc)
 
 add_dependencies(XiaomiViewer bridge)
+
+# rc.exe cannot report what a script pulled in, so the icon has to be named as a
+# dependency by hand or a regenerated one never reaches the executable.
+set_source_files_properties(src/app/app.rc PROPERTIES
+    OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/app/XiaomiViewer.ico")
 
 target_include_directories(XiaomiViewer PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"

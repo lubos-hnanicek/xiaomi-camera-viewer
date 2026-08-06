@@ -16,6 +16,7 @@
 
 #include "app/Frameless.h"
 #include "app/Log.h"
+#include "app/Resources.h"
 #include "app/SingleInstance.h"
 #include "app/Theme.h"
 #include "bridge/Bridge.h"
@@ -40,6 +41,15 @@ constexpr int kDefaultHeight = 900;
 // the docking station, so a position that was fine last time can leave the
 // window somewhere with no way to drag it back.
 constexpr double kMinVisibleFraction = 0.5;
+
+// One size out of the icon group in our own resources. The size is asked for
+// explicitly because LoadIcon would always take the 32-pixel image and let
+// Windows shrink it, and a 16-pixel icon scaled from that is the smeared one
+// seen in the taskbar and the Alt+Tab list.
+HICON loadAppIcon(HINSTANCE instance, int width, int height) {
+    return static_cast<HICON>(::LoadImageW(instance, MAKEINTRESOURCEW(IDI_APPICON), IMAGE_ICON,
+                                           width, height, LR_DEFAULTCOLOR));
+}
 
 long long rectArea(const RECT& rect) {
     const long long width = rect.right - rect.left;
@@ -349,7 +359,15 @@ bool App::createWindow(HINSTANCE instance, int showCommand, std::string& error) 
     wc.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
     wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW);
     wc.lpszClassName = kWindowClass;
-    wc.hIcon = ::LoadIconW(nullptr, IDI_APPLICATION);
+
+    // Both sizes are loaded from our own resources: the large one is what
+    // Alt+Tab and the taskbar show, the small one is the window's own. Leaving
+    // hIconSm null would have Windows derive it from the large image rather
+    // than use the one drawn for that size. The handles live as long as the
+    // class, which is as long as the process, and go with it.
+    wc.hIcon = loadAppIcon(instance, ::GetSystemMetrics(SM_CXICON), ::GetSystemMetrics(SM_CYICON));
+    wc.hIconSm =
+        loadAppIcon(instance, ::GetSystemMetrics(SM_CXSMICON), ::GetSystemMetrics(SM_CYSMICON));
 
     if (::RegisterClassExW(&wc) == 0) {
         error = "Could not register the window class.";
