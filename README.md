@@ -195,7 +195,7 @@ Then:
 ```powershell
 .\scripts\fetch-deps.ps1     # Dear ImGui, nlohmann/json, prebuilt FFmpeg
 .\scripts\build.ps1          # configure and build everything
-.\scripts\build.ps1 -Package # ...and stage a redistributable folder in dist\
+.\scripts\build.ps1 -Package # ...and write a redistributable zip to dist\
 ```
 
 `build.ps1` finds Visual Studio itself and uses its bundled CMake and Ninja, so

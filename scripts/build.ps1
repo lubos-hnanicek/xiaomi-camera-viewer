@@ -153,4 +153,41 @@ if ($Package) {
     }
 
     Write-Step "Packaged $dist"
+
+    # The app is handed out as a zip that is unpacked and run, so make the zip
+    # here rather than leave the last step of a release to be done by hand.
+    #
+    # A Debug build is not something to hand to anyone, so it stops at the
+    # staged folder. Release and RelWithDebInfo of the same version write the
+    # same file on purpose: only one of them is the release, and it is the one
+    # that was packaged last.
+    if ($Configuration -ne 'Debug') {
+        $projectFile = Join-Path $RepoRoot 'CMakeLists.txt'
+        if ((Get-Content $projectFile -Raw) -notmatch '(?m)^\s*VERSION\s+(\d+\.\d+\.\d+)') {
+            throw "No project version found in $projectFile"
+        }
+        $version = $Matches[1]
+
+        $zipPath = Join-Path $RepoRoot "dist\XiaomiViewer-$version-win-x64.zip"
+        if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+
+        # Entries are written under a version-named directory, so unpacking
+        # cannot spill a dozen files into wherever the zip was opened. The
+        # staged folder is named after the configuration instead, so two of
+        # them can sit side by side, and that is not a name to give a user.
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $archive = [System.IO.Compression.ZipFile]::Open($zipPath, 'Create')
+        try {
+            foreach ($file in Get-ChildItem -File -Recurse $dist) {
+                $relative = $file.FullName.Substring($dist.Length + 1).Replace('\', '/')
+                [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                    $archive, $file.FullName, "XiaomiViewer-$version/$relative",
+                    [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+            }
+        } finally {
+            $archive.Dispose()
+        }
+
+        Write-Step "Wrote $zipPath ($([int]((Get-Item $zipPath).Length / 1MB)) MB)"
+    }
 }
