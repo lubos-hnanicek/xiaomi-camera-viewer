@@ -45,6 +45,12 @@ jobs:
       - name: Fetch dependencies
         run: .\scripts\fetch-deps.ps1
 
+      - name: Resolve version
+        id: version
+        run: |
+          $version = & .\scripts\get-version.ps1
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$version" -Encoding utf8
+
       - name: Build
         run: .\scripts\build.ps1 -Configuration RelWithDebInfo -Jobs 4
 
@@ -60,3 +66,19 @@ jobs:
       # every build instead.
       - name: Check version metadata
         run: .\scripts\check-metadata.ps1 -Configuration RelWithDebInfo
+
+      - name: Package
+        run: .\scripts\package.ps1 -Configuration RelWithDebInfo
+
+      # So a branch or a pull request can be tried without building it locally.
+      # These are unsigned, unlike a release: nothing here has been through
+      # SignPath, and Windows will say so on first run.
+      - name: Upload the build
+        uses: actions/upload-artifact@v7
+        with:
+          name: XiaomiViewer-${{ steps.version.outputs.version }}-win-x64-unsigned
+          path: dist/*.zip
+          if-no-files-found: error
+          # Short, because this is a build to try rather than a build to keep,
+          # and every push would otherwise leave 50 MB behind for three months.
+          retention-days: 14
