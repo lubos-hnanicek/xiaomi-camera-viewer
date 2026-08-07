@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    # Stated rather than left implicit: every step here runs a PowerShell script
+    # from scripts/, so which PowerShell is not an incidental detail.
+    shell: pwsh
+
+jobs:
+  build:
+    # Pinned rather than windows-latest: the project needs the Visual Studio 2026
+    # toolset, and a release has to be reproducible, which a moving label is not.
+    runs-on: windows-2025
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: bridge/go.mod
+          cache-dependency-path: bridge/go.sum
+
+      # Keyed on fetch-deps.ps1 because that is where the pinned versions and
+      # hashes live, so bumping a dependency invalidates the cache by itself.
+      - name: Cache third-party dependencies
+        uses: actions/cache@v6
+        with:
+          path: third_party
+          key: deps-${{ runner.os }}-${{ hashFiles('scripts/fetch-deps.ps1') }}
+
+      - name: Fetch dependencies
+        run: .\scripts\fetch-deps.ps1
+
+      - name: Build
+        run: .\scripts\build.ps1 -Configuration RelWithDebInfo -Jobs 4
+
+      - name: Bridge tests
+        run: go test ./...
+        working-directory: bridge
+
+      - name: Bridge ABI tests
+        run: .\scripts\test-bridge-abi.ps1
+
+      # Signing is a release concern, but a missing version resource would only
+      # surface as a rejected signing request weeks later, so it is checked on
+      # every build instead.
+      - name: Check version metadata
+        run: .\scripts\check-metadata.ps1 -Configuration RelWithDebInfo

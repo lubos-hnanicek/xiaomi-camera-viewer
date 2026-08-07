@@ -21,6 +21,27 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # FFmpeg's own allocators -- so the private heap is never shared.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+# --- Version and publisher metadata -----------------------------------------
+# Windows PE metadata is a signing prerequisite rather than a nicety: SignPath's
+# Open Source terms require every signed binary to carry a product name and a
+# product version, identical across the whole release. So the project version
+# above is the only hand-written version in the tree, and it reaches the resource
+# compiler, the application manifest and the Go bridge from here.
+set(XV_PRODUCT_NAME "Xiaomi Camera Viewer")
+set(XV_PUBLISHER "Xiaomi Camera Viewer contributors")
+set(XV_COPYRIGHT "Copyright (c) 2026 ${XV_PUBLISHER}")
+set(XV_VERSION_FULL "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}.0")
+
+set(GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set(VERSION_HEADER "${GENERATED_DIR}/app/Version.h")
+set(APP_MANIFEST "${GENERATED_DIR}/app.manifest")
+
+set(BRIDGE_VERSION_RC "${GENERATED_DIR}/xmbridge.rc")
+
+configure_file(cmake/Version.h.in "${VERSION_HEADER}" @ONLY)
+configure_file(src/app/app.manifest.in "${APP_MANIFEST}" @ONLY)
+configure_file(bridge/versioninfo.rc.in "${BRIDGE_VERSION_RC}" @ONLY)
+
 set(THIRD_PARTY "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 
 if(NOT EXISTS "${THIRD_PARTY}/imgui/imgui.h")
@@ -76,6 +97,7 @@ set(BRIDGE_DLL "${BRIDGE_OUT}/xmbridge.dll")
 file(GLOB_RECURSE BRIDGE_SOURCES CONFIGURE_DEPENDS "${BRIDGE_DIR}/*.go")
 list(APPEND BRIDGE_SOURCES
     "${BRIDGE_DIR}/go.mod"
+    "${BRIDGE_VERSION_RC}"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/xmbridge_types.h")
 
 add_custom_command(
@@ -83,6 +105,8 @@ add_custom_command(
     COMMAND powershell -NoProfile -ExecutionPolicy Bypass
             -File "${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-bridge.ps1"
             -OutputDir "${BRIDGE_OUT}"
+            -Version "${PROJECT_VERSION}"
+            -VersionInfoRc "${BRIDGE_VERSION_RC}"
     WORKING_DIRECTORY "${BRIDGE_DIR}"
     DEPENDS ${BRIDGE_SOURCES}
     COMMENT "Building Go bridge DLL (xmbridge.dll)"
@@ -115,19 +139,21 @@ add_executable(XiaomiViewer WIN32
     src/ui/PtzOverlay.cpp
     src/ui/SettingsView.cpp
     src/util/Encoding.cpp
-    src/app/app.manifest
+    "${APP_MANIFEST}"
     src/app/app.rc)
 
 add_dependencies(XiaomiViewer bridge)
 
-# rc.exe cannot report what a script pulled in, so the icon has to be named as a
-# dependency by hand or a regenerated one never reaches the executable.
+# rc.exe cannot report what a script pulled in, so the icon and the generated
+# version header have to be named as dependencies by hand, or a regenerated icon
+# and a bumped version never reach the executable.
 set_source_files_properties(src/app/app.rc PROPERTIES
-    OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/app/XiaomiViewer.ico")
+    OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/app/XiaomiViewer.ico;${VERSION_HEADER}")
 
 target_include_directories(XiaomiViewer PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${GENERATED_DIR}")
 
 target_link_libraries(XiaomiViewer PRIVATE
     imgui
@@ -142,8 +168,7 @@ target_link_libraries(XiaomiViewer PRIVATE
 target_compile_definitions(XiaomiViewer PRIVATE
     UNICODE _UNICODE
     WIN32_LEAN_AND_MEAN
-    NOMINMAX
-    XV_VERSION="${PROJECT_VERSION}")
+    NOMINMAX)
 
 if(MSVC)
     # No /MP here: Ninja already runs one cl.exe per source, and adding /MP on

@@ -207,6 +207,28 @@ Tests:
 ```powershell
 cd bridge; go test ./...          # protocol and dispatch logic
 .\scripts\test-bridge-abi.ps1     # the C ABI, against the real DLL
+.\scripts\check-metadata.ps1      # version resources, which signing depends on
+```
+
+The version in the `project()` call in `CMakeLists.txt` is the only place a
+version is written by hand. The executable's version resource, the application
+manifest, the bridge DLL and the names of the zips are all derived from it, so
+bumping it is the whole of a version bump.
+
+### Releases
+
+Published releases are built by GitHub Actions rather than locally, because the
+binaries are code signed and SignPath will only sign what it can independently
+verify was built by a workflow in this repository. See
+[docs/signing.md](docs/signing.md) for the release process, and
+[Code signing policy](#code-signing-policy) for what a signature means.
+
+The signature has to go on the binaries before they are packaged, which is why
+staging and archiving are separable:
+
+```powershell
+.\scripts\package.ps1 -Stage      # build output -> dist\XiaomiViewer-<config>\
+.\scripts\package.ps1 -Archive    # that directory -> dist\*.zip
 ```
 
 ## How it works
@@ -310,6 +332,50 @@ for working out a model that does not respond to the payload above.
 - Cameras negotiating a transport other than CS2 (older TUTK-based models) are
   rejected with a clear message rather than silently failing.
 - Audio is mono, and playing it is one-way. There is no talkback.
+
+## Code signing policy
+
+`XiaomiViewer.exe` and `xmbridge.dll` in every release are Authenticode signed.
+Free code signing is provided by [SignPath.io](https://signpath.io), with a
+certificate by the [SignPath Foundation](https://signpath.org).
+
+Because the certificate belongs to the Foundation rather than to this project, a
+signature is a statement about where the binary came from: it was built by the
+[release workflow](.github/workflows/release.yml) from the source in this
+repository, on a GitHub-hosted runner, and a human approved that specific
+release. Nothing signed here was built on anybody's desktop. The FFmpeg DLLs that
+ship in the archive are upstream builds and are not signed by this project.
+
+To check a download yourself:
+
+```powershell
+Get-AuthenticodeSignature .\XiaomiViewer.exe | Format-List Status, SignerCertificate
+```
+
+### Team roles
+
+- Authors and reviewers: [lubos-hnanicek](https://github.com/lubos-hnanicek)
+- Approvers: [lubos-hnanicek](https://github.com/lubos-hnanicek)
+
+### Privacy
+
+This program transfers information to networked systems only as needed to do what
+it was asked to do, and only to systems you choose:
+
+- Signing in, listing your cameras and reading or writing camera settings go to
+  **Xiaomi's servers**, in the region you select. Your Mi account credentials and
+  your camera data are handled by Xiaomi under
+  [their privacy policy](https://privacy.mi.com/all/en_US), not by this project.
+- Video and audio travel **directly between your cameras and your PC** over the
+  local network.
+- Nothing is sent to the maintainers of this project or to any third party. There
+  is no telemetry, no crash reporting and no update check.
+- Your account token is stored on your PC only, encrypted with DPAPI so that it
+  cannot be read by another Windows account. Recordings are written where you tell
+  the app to write them and are never uploaded.
+
+The maintenance side of all this -- how to set the signing up, and how a release
+is cut -- is in [docs/signing.md](docs/signing.md).
 
 ## Credits and licensing
 

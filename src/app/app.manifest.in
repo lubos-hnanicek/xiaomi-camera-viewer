@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <assemblyIdentity type="win32" name="XiaomiViewer" version="1.0.0.0" processorArchitecture="amd64"/>
+  <assemblyIdentity type="win32" name="XiaomiViewer" version="@XV_VERSION_FULL@" processorArchitecture="amd64"/>
 
   <!-- Per-monitor v2 so the window stays sharp when dragged between displays of
        different scaling, which matters when a 4K tile is on screen. -->

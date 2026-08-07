@@ -14,8 +14,10 @@ import (
 	"github.com/spec8472/xiaomi-viewer/bridge/internal/stream"
 )
 
-// Version is reported by xmb_version and stamped into the app's about box.
-const Version = "0.1.0"
+// Version is reported by xmb_version and stamped into the app's about box. It is
+// set at link time from the project version by scripts/build-bridge.ps1, so it is
+// a var rather than a const; the fallback only shows up in a bare `go build`.
+var Version = "0.0.0-dev"
 
 var (
 	registry = cloud.NewRegistry()

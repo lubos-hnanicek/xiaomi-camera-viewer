@@ -19,6 +19,7 @@
 #include "app/Resources.h"
 #include "app/SingleInstance.h"
 #include "app/Theme.h"
+#include "app/Version.h"
 #include "bridge/Bridge.h"
 #include "ui/Views.h"
 #include "util/Encoding.h"

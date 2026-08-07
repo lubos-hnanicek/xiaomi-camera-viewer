@@ -1,6 +1,48 @@
+#include <winver.h>
+
 #include "app/Resources.h"
+#include "app/Version.h"
 
 // Explorer, the taskbar, Alt+Tab and the window itself all end up here. The
 // group holds every size from 16 to 256 so nothing has to be scaled; it is
 // drawn by scripts/make-icon.ps1, which is the icon's real source.
 IDI_APPICON ICON "app/XiaomiViewer.ico"
+
+// A code signature is only half of an identity: Windows shows the publisher from
+// the signature but the product name and version from here, and SignPath's Open
+// Source terms require both to be present and enforced on every signed binary.
+// ProductVersion has to read the same in xmbridge.dll, which is why both come
+// from the project version rather than being written out twice.
+VS_VERSION_INFO VERSIONINFO
+    FILEVERSION XV_VERSION_MAJOR, XV_VERSION_MINOR, XV_VERSION_PATCH, 0
+    PRODUCTVERSION XV_VERSION_MAJOR, XV_VERSION_MINOR, XV_VERSION_PATCH, 0
+    FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+#ifdef _DEBUG
+    FILEFLAGS VS_FF_DEBUG
+#else
+    FILEFLAGS 0x0L
+#endif
+    FILEOS VOS_NT_WINDOWS32
+    FILETYPE VFT_APP
+    FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        // US English, Unicode.
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", XV_PUBLISHER
+            VALUE "FileDescription", XV_DESCRIPTION
+            VALUE "FileVersion", XV_VERSION
+            VALUE "InternalName", "XiaomiViewer"
+            VALUE "LegalCopyright", XV_COPYRIGHT
+            VALUE "OriginalFilename", "XiaomiViewer.exe"
+            VALUE "ProductName", XV_PRODUCT_NAME
+            VALUE "ProductVersion", XV_VERSION
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 0x04B0
+    END
+END
