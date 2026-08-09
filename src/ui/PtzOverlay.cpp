@@ -165,6 +165,10 @@ float buttonWidthFor(const char* label) {
     return ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2.0f;
 }
 
+float nightButtonWidthFor(const char* label) {
+    return ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 1.5f;
+}
+
 PadMetrics measurePad(const Controls& controls) {
     PadMetrics m;
 
@@ -178,16 +182,18 @@ PadMetrics measurePad(const Controls& controls) {
     const auto segments =
         controls.night.shown ? controls.night.property->options.size() : size_t{0};
 
-    // The record button keeps one width whichever of the two things it says, and
-    // the line beside it is measured from a specimen rather than from what it
-    // currently reads, so neither the pad nor the button under the pointer moves
-    // while a recording runs. The listen button follows the same rule.
+    // The two buttons keep their widths whichever labels they show. The recording
+    // status below them is measured from a specimen so the pad does not move as
+    // its elapsed time and file size change.
     m.record = ImVec2(std::max(buttonWidthFor(kRecordLabel), buttonWidthFor(kStopLabel)), frame);
     m.listen = ImVec2(std::max(buttonWidthFor(kListenLabel), buttonWidthFor(kMuteLabel)), frame);
 
     // Wide enough for the widest row, so nothing has to be cut short.
-    float width = m.record.x + m.spacing.x + m.listen.x + m.spacing.x + text +
-                  ImGui::CalcTextSize("000:00 - 0000 MB").x;
+    float width = m.record.x + m.spacing.x + m.listen.x;
+    if (!controls.recordingLabel.empty()) {
+        const float dotAndGap = text * 0.52f + 6.0f;
+        width = std::max(width, dotAndGap + ImGui::CalcTextSize("000:00 - 0000 MB").x);
+    }
     if (controls.arrows) {
         width = std::max(width, arrow * 3.0f + m.spacing.x * 2.0f);
     }
@@ -197,10 +203,13 @@ PadMetrics measurePad(const Controls& controls) {
                                         2.0f +
                                     m.spacing.x);
     }
-    for (size_t i = 0; i < segments; ++i) {
-        const float segment = buttonWidthFor(controls.night.property->options[i].label);
+    if (segments > 0) {
+        float segment = 0.0f;
+        for (const MiotEnumOption& option : controls.night.property->options) {
+            segment = std::max(segment, nightButtonWidthFor(option.label));
+        }
         width = std::max(width, segment * static_cast<float>(segments) +
-                                    m.spacing.x * static_cast<float>(segments - 1));
+                                   m.spacing.x * static_cast<float>(segments - 1));
     }
 
     // Stacked down the pad, with one spacing between each neighbouring pair.
@@ -224,6 +233,10 @@ PadMetrics measurePad(const Controls& controls) {
     }
     content += frame; // the record and listen buttons, which every camera has
     rows += 1;
+    if (!controls.recordingLabel.empty()) {
+        content += text + 2.0f;
+        rows += 1;
+    }
     content += m.spacing.y * static_cast<float>(std::max(rows - 1, 0));
 
     m.toggle = ImVec2((width - m.spacing.x) * 0.5f, frame);
@@ -331,6 +344,9 @@ void drawListenControl(App& app, CameraStream& stream, const PadMetrics& pad,
 
 void drawRecordControl(App& app, CameraStream& stream, const PadMetrics& pad,
                        const Controls& controls) {
+    const float rowStart = ImGui::GetCursorPosX();
+    const float rowWidth = ImGui::GetContentRegionAvail().x;
+
     if (litButton(controls.recording ? kStopLabel : kRecordLabel, controls.recording, pad.record,
                   theme::kFailed)) {
         app.toggleRecording(stream);
@@ -347,14 +363,13 @@ void drawRecordControl(App& app, CameraStream& stream, const PadMetrics& pad,
                               "sends it, with its audio");
     }
 
-    ImGui::SameLine();
+    ImGui::SameLine(rowStart + rowWidth - pad.listen.x);
     drawListenControl(app, stream, pad, controls);
 
     if (controls.recordingLabel.empty()) {
         return;
     }
 
-    ImGui::SameLine();
     ImGui::AlignTextToFramePadding();
 
     if (!controls.recordingLive) {
