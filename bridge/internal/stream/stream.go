@@ -84,6 +84,7 @@ type reply struct {
 
 type Session struct {
 	client *miss.Client
+	shared *sharedPhysical
 
 	// Whether this session asked the camera for audio, which is what makes the
 	// silence of an audio-less session worth acting on.
@@ -92,8 +93,9 @@ type Session struct {
 	frames chan *Frame
 	done   chan struct{}
 
-	closeOnce sync.Once
-	err       atomic.Pointer[error]
+	closeOnce       sync.Once
+	framesCloseOnce sync.Once
+	err             atomic.Pointer[error]
 
 	frameCount atomic.Uint64
 	byteCount  atomic.Uint64
@@ -208,7 +210,7 @@ func (s *Session) Replies() []string {
 const audioGrace = 3 * time.Second
 
 func (s *Session) reader() {
-	defer close(s.frames)
+	defer s.end(nil)
 
 	// Some models answer enableaudio in the start command and some appear to
 	// want the separate 0x104 as well. Which is which is not documented, so the
@@ -244,25 +246,36 @@ func (s *Session) reader() {
 			}
 		}
 
-		s.frameCount.Add(1)
-		s.byteCount.Add(uint64(len(frame.Data)))
+		if !s.enqueue(frame) {
+			return
+		}
+	}
+}
 
+func (s *Session) enqueue(frame *Frame) bool {
+	s.frameCount.Add(1)
+	s.byteCount.Add(uint64(len(frame.Data)))
+
+	select {
+	case s.frames <- frame:
+		return true
+	case <-s.done:
+		return false
+	default:
+		// Prefer fresh frames over a backlog: drop the oldest and retry.
+		select {
+		case <-s.frames:
+			s.dropped.Add(1)
+		default:
+		}
 		select {
 		case s.frames <- frame:
+			return true
 		case <-s.done:
-			return
+			return false
 		default:
-			// Prefer fresh frames over a backlog: drop the oldest and retry.
-			select {
-			case <-s.frames:
-				s.dropped.Add(1)
-			default:
-			}
-			select {
-			case s.frames <- frame:
-			default:
-				s.dropped.Add(1)
-			}
+			s.dropped.Add(1)
+			return true
 		}
 	}
 }
@@ -327,7 +340,7 @@ func (s *Session) Step(direction string) error {
 	if err != nil {
 		return err
 	}
-	return s.client.MotorStep(operation)
+	return s.mediaClient().MotorStep(operation)
 }
 
 func motorOperation(direction string) (int, error) {
@@ -347,20 +360,20 @@ func motorOperation(direction string) (int, error) {
 // Motor sends an arbitrary motor payload, for probing a model whose accepted
 // payload shape is not known yet.
 func (s *Session) Motor(body string) error {
-	return s.client.MotorRaw(body)
+	return s.mediaClient().MotorRaw(body)
 }
 
 // Raw sends an arbitrary command, for probing a part of the protocol that has no
 // implementation here yet. Whatever the camera answers turns up in Replies.
 func (s *Session) Raw(cmd uint32, body string) error {
-	return s.client.SendRaw(cmd, body)
+	return s.mediaClient().SendRaw(cmd, body)
 }
 
 // Unhandled describes traffic the transport had nowhere to put, per channel, as
 // a count and a hex sample. Only of interest while probing: a camera that
 // answers on a channel this bridge does not open looks silent without it.
 func (s *Session) Unhandled() []string {
-	counts, samples := s.client.Unhandled()
+	counts, samples := s.mediaClient().Unhandled()
 
 	var out []string
 	for ch, count := range counts {
@@ -390,10 +403,28 @@ func (s *Session) setErr(err error) {
 	s.err.CompareAndSwap(nil, &err)
 }
 
+func (s *Session) end(err error) {
+	if err != nil {
+		s.setErr(err)
+	}
+	s.framesCloseOnce.Do(func() { close(s.frames) })
+}
+
+func (s *Session) mediaClient() *miss.Client {
+	if s.shared != nil {
+		return s.shared.client
+	}
+	return s.client
+}
+
 // Close tears the session down and unblocks any waiting Read.
 func (s *Session) Close() {
 	s.closeOnce.Do(func() {
 		close(s.done)
+		if s.shared != nil {
+			s.shared.detach(s)
+			return
+		}
 		_ = s.client.StopMedia()
 		_ = s.client.Close()
 		// The reader goroutine observes the closed connection and closes the

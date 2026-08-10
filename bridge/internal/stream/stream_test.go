@@ -6,6 +6,98 @@ import (
 	"github.com/spec8472/xiaomi-viewer/bridge/internal/miss"
 )
 
+func TestSharedSequenceRouterSeparatesCapturedCW500Lanes(t *testing.T) {
+	physical := &sharedPhysical{
+		initial:    0,
+		firstVideo: make(chan struct{}),
+	}
+
+	// The first packet arrived while only lens 1 was requested, which anchors
+	// that counter to lane 0. The remaining numbers are from a real CW500 after
+	// enabling both videoquality fields on the same session.
+	if lane := physical.routeLocked(6935607); lane != 0 {
+		t.Fatalf("initial packet routed to lane %d, want 0", lane)
+	}
+	physical.dual = true
+
+	captured := []struct {
+		sequence uint32
+		wantLane int
+	}{
+		{6928709, 1},
+		{6935608, 0},
+		{6928710, 1},
+		{6935609, 0},
+		{6928711, 1},
+		{6935610, 0},
+		{6935611, 0}, // one lens can deliver twice before the other catches up
+		{6928712, 1},
+	}
+
+	for _, packet := range captured {
+		if lane := physical.routeLocked(packet.sequence); lane != packet.wantLane {
+			t.Errorf("sequence %d routed to lane %d, want %d",
+				packet.sequence, lane, packet.wantLane)
+		}
+	}
+}
+
+func TestSharedSequenceRouterDoesNotMergeNearbySeeds(t *testing.T) {
+	physical := &sharedPhysical{
+		initial:    1,
+		firstVideo: make(chan struct{}),
+	}
+
+	if lane := physical.routeLocked(1000); lane != 1 {
+		t.Fatalf("initial packet routed to lane %d, want 1", lane)
+	}
+	physical.dual = true
+
+	// Sequence counters are randomly seeded. A different lens can begin nearby,
+	// but only the exact successor belongs to the already anchored stream.
+	if lane := physical.routeLocked(1100); lane != 0 {
+		t.Errorf("new counter routed to lane %d, want 0", lane)
+	}
+	if lane := physical.routeLocked(1001); lane != 1 {
+		t.Errorf("initial counter successor routed to lane %d, want 1", lane)
+	}
+	if lane := physical.routeLocked(1101); lane != 0 {
+		t.Errorf("second counter successor routed to lane %d, want 0", lane)
+	}
+}
+
+func TestSharedSequenceRouterRemapsCombinedLensIdentity(t *testing.T) {
+	physical := &sharedPhysical{
+		initial:    0,
+		firstVideo: make(chan struct{}),
+	}
+
+	if lane := physical.logicalLaneLocked(5000); lane != 0 {
+		t.Fatalf("single-lens packet routed to logical lane %d, want 0", lane)
+	}
+
+	physical.dual = true
+	if lane := physical.logicalLaneLocked(9000); lane != 0 {
+		t.Errorf("new combined counter routed to logical lane %d, want 0", lane)
+	}
+	if lane := physical.logicalLaneLocked(5001); lane != 1 {
+		t.Errorf("anchored combined counter routed to logical lane %d, want 1", lane)
+	}
+}
+
+func TestLensLane(t *testing.T) {
+	for _, channel := range []string{"", "0"} {
+		if lane := lensLane(channel); lane != 0 {
+			t.Errorf("lensLane(%q) = %d, want 0", channel, lane)
+		}
+	}
+	for _, channel := range []string{"1", "2", "secondary"} {
+		if lane := lensLane(channel); lane != 1 {
+			t.Errorf("lensLane(%q) = %d, want 1", channel, lane)
+		}
+	}
+}
+
 // The mapping is what makes the picture follow the button, and getting it
 // backwards is not something a compiler can catch. Both axes are inverted
 // against the camera's own coordinates: operation 1 increases the reported x

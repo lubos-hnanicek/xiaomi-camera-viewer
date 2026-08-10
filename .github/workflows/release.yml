@@ -80,8 +80,8 @@ jobs:
           Write-Host "project version $version"
 
       # The zip names, the version resource and the release title all come from
-      # CMakeLists.txt, so a tag that disagrees with it would publish a v0.3.0
-      # release full of files calling themselves 0.2.0.
+      # CMakeLists.txt, so a tag that disagrees with it would publish a v0.4.0
+      # release full of files calling themselves 0.3.0.
       - name: Check the tag matches the project version
         if: env.SIGNING == 'true'
         # The tag reaches PowerShell through the environment rather than through

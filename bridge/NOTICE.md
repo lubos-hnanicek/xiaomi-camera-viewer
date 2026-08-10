@@ -60,6 +60,13 @@ Upstream revision: `v1.9.14` (commit `b5948cfb25404cc5cb37b166ecaa2dca20b11d4b`)
   both 2560x1440. The CW400 half matches
   [go2rtc#2074](https://github.com/AlexxIT/go2rtc/issues/2074) and
   [go2rtc#2313](https://github.com/AlexxIT/go2rtc/pull/2313).
+- Dual-lens CW500 sessions are pooled by device. When both logical lenses are
+  open, one video-start command enables `videoquality` and `videoquality2`;
+  their independently increasing packet sequences are demultiplexed into the
+  two existing frame queues. This uses one camera connection instead of two,
+  leaving the model's other live-view slot available to Xiaomi Home. Measured
+  with `scripts/probe-dual-session.ps1` and checked end to end with
+  `scripts/verify-lenses.ps1`.
 - The handshake reports what it saw when it times out, and compares peer
   addresses with `net.IP.Equal` rather than comparing the raw bytes, which
   differ between the 4-byte and 16-byte forms of the same address.

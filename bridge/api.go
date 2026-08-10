@@ -20,7 +20,8 @@ import (
 var Version = "0.0.0-dev"
 
 var (
-	registry = cloud.NewRegistry()
+	registry    = cloud.NewRegistry()
+	dualStreams = stream.NewSharedPool()
 
 	// The login conversation spans several calls, but the region is only known
 	// at the start, so it is parked here until the account can be completed.
@@ -263,9 +264,9 @@ type miotRequest struct {
 	UserID string `json:"user_id"`
 	Did    string `json:"did"`
 	Props  []struct {
-		Siid  int  `json:"siid"`
-		Piid  int  `json:"piid"`
-		Value any  `json:"value"`
+		Siid  int `json:"siid"`
+		Piid  int `json:"piid"`
+		Value any `json:"value"`
 	} `json:"props"`
 	Siid int   `json:"siid"`
 	Aiid int   `json:"aiid"`
@@ -376,6 +377,28 @@ func openStream(request []byte) (*stream.Session, []byte) {
 		_ = acc.WakeUp(req.Did)
 	}
 
+	cfg := stream.Config{
+		Host:      host,
+		Transport: req.Transport,
+		Model:     req.Model,
+		Channel:   req.Channel,
+		Quality:   req.Quality,
+		Audio:     req.Audio,
+	}
+
+	dual := isDualLensModel(req.Model)
+	sharedKey := ""
+	if dual {
+		sharedKey = strings.Join(
+			[]string{req.UserID, req.Did, host, req.Transport, req.Model}, "\x00")
+		if s, found, attachErr := dualStreams.Attach(sharedKey, cfg); found {
+			if attachErr != nil {
+				return nil, errString("bridge: shared dual-lens stream: %s", attachErr)
+			}
+			return s, streamOpenResponse(s, "cs2", host, true)
+		}
+	}
+
 	sess, err := acc.MissVendor(req.Did)
 	if err != nil {
 		return nil, errResponse(err)
@@ -386,28 +409,39 @@ func openStream(request []byte) (*stream.Session, []byte) {
 			sess.Vendor)
 	}
 
-	s, err := stream.Open(stream.Config{
-		Host:          host,
-		Transport:     req.Transport,
-		Model:         req.Model,
-		Channel:       req.Channel,
-		Quality:       req.Quality,
-		Audio:         req.Audio,
-		DevicePublic:  sess.DevicePublic,
-		ClientPublic:  sess.ClientPublic,
-		ClientPrivate: sess.ClientPrivate,
-		Sign:          sess.Sign,
-	})
+	cfg.DevicePublic = sess.DevicePublic
+	cfg.ClientPublic = sess.ClientPublic
+	cfg.ClientPrivate = sess.ClientPrivate
+	cfg.Sign = sess.Sign
+
+	var s *stream.Session
+	if dual {
+		s, err = dualStreams.Open(sharedKey, cfg)
+	} else {
+		s, err = stream.Open(cfg)
+	}
 	if err != nil {
 		return nil, errString("bridge: vendor %s: %s", sess.Vendor, err)
 	}
 
-	return s, okResponse(map[string]any{
+	return s, streamOpenResponse(s, sess.Vendor, host, dual)
+}
+
+func streamOpenResponse(s *stream.Session, vendor, host string, shared bool) []byte {
+	return okResponse(map[string]any{
 		"protocol":    s.Protocol,
 		"remote_addr": s.RemoteAddr,
-		"vendor":      sess.Vendor,
+		"vendor":      vendor,
 		"host":        host,
+		"shared":      shared,
 	})
+}
+
+func isDualLensModel(model string) bool {
+	model = strings.ToLower(model)
+	return strings.Contains(model, ".hlmax") ||
+		strings.Contains(model, "500dh") ||
+		strings.Contains(model, "cw500")
 }
 
 // lanSearchTimeout bounds the broadcast search for a camera the cloud has no

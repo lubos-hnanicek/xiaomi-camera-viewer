@@ -4,8 +4,9 @@
 
 .DESCRIPTION
     Adds the second lens of the given camera to the grid alongside the first and
-    reports what each tile delivered. Running both together is the case that
-    matters: a camera may serve either lens alone and still refuse two sessions.
+    checks that both tiles decode while reporting the same remote endpoint.
+    Matching endpoints prove that the two logical handles share one physical
+    camera session.
 
     The real config is backed up and restored, including if this is interrupted.
 #>
@@ -17,10 +18,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$repoRoot   = Split-Path -Parent $PSScriptRoot
-$exe        = Join-Path $repoRoot 'dist\XiaomiViewer-RelWithDebInfo\XiaomiViewer.exe'
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$exe = Join-Path $repoRoot 'build\msvc\RelWithDebInfo\XiaomiViewer.exe'
 $configPath = Join-Path $env:APPDATA 'XiaomiViewer\config.json'
-$logPath    = Join-Path $env:APPDATA 'XiaomiViewer\xiaomi-viewer.log'
+$logPath = Join-Path $env:APPDATA 'XiaomiViewer\xiaomi-viewer.log'
 $backupPath = "$configPath.lens-backup"
 
 if (-not (Test-Path $exe))        { throw "Not built: $exe" }
@@ -53,9 +54,28 @@ try {
     if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
     Start-Sleep -Seconds 2
 
-    Get-Content $logPath | Where-Object {
+    $lines = @(Get-Content $logPath)
+    $interesting = @($lines | Where-Object {
         $_ -match 'connected over|first keyframe|pipeline ready|could not open|session ended'
+    })
+    $interesting
+
+    $connections = @($lines | Select-String -Pattern 'connected over \S+ to (\S+) \(vendor')
+    $endpoints = @($connections | ForEach-Object { $_.Matches[0].Groups[1].Value } |
+        Sort-Object -Unique)
+    $keyframes = @($lines | Select-String -Pattern 'first keyframe').Count
+
+    if ($connections.Count -ne 2) {
+        throw "Expected two logical connections, found $($connections.Count)."
     }
+    if ($endpoints.Count -ne 1) {
+        throw "The two lenses used different physical endpoints: $($endpoints -join ', ')"
+    }
+    if ($keyframes -ne 2) {
+        throw "Expected two decoded keyframes, found $keyframes."
+    }
+
+    Write-Host "`nshared endpoint confirmed: $($endpoints[0])" -ForegroundColor Green
 } finally {
     Copy-Item $backupPath $configPath -Force
     Remove-Item $backupPath -Force

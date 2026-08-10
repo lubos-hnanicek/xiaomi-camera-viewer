@@ -133,10 +133,10 @@ func login(conn *cs2.Conn, clientPublic, sign string) error {
 	return nil
 }
 
-func (c *Client) Protocol() string      { return c.conn.Protocol() }
-func (c *Client) RemoteAddr() net.Addr  { return c.conn.RemoteAddr() }
-func (c *Client) Model() string         { return c.model }
-func (c *Client) Close() error          { return c.conn.Close() }
+func (c *Client) Protocol() string     { return c.conn.Protocol() }
+func (c *Client) RemoteAddr() net.Addr { return c.conn.RemoteAddr() }
+func (c *Client) Model() string        { return c.model }
+func (c *Client) Close() error         { return c.conn.Close() }
 
 // Unhandled passes through the transport's count of data on channels this
 // bridge does not use, which is a diagnostic for a command that looks ignored.
@@ -166,22 +166,40 @@ func command(cmd uint32, body string) []byte {
 // secondary lens, which is requested by pinning the primary to -1 and setting
 // videoquality2 instead.
 func (c *Client) StartMedia(channel, quality string, audio bool) error {
-	quality = resolveQuality(c.model, quality)
+	body := mediaStartBody(c.model, channel, quality, "", audio)
+	return c.writeCommand(command(cmdVideoStart, body))
+}
+
+// StartMediaBoth asks a dual-lens camera to put both video streams on this
+// connection. The camera interleaves two independent sequence-number lanes on
+// the ordinary media channel; the stream package separates them before either
+// decoder sees them.
+func (c *Client) StartMediaBoth(primaryQuality, secondaryQuality string, audio bool) error {
+	body := mediaStartBody(c.model, "both", primaryQuality, secondaryQuality, audio)
+	return c.writeCommand(command(cmdVideoStart, body))
+}
+
+func mediaStartBody(model, channel, quality, secondaryQuality string, audio bool) string {
+	quality = resolveQuality(model, quality)
 
 	audioFlag := "0"
 	if audio {
 		audioFlag = "1"
 	}
 
-	var body string
 	switch channel {
 	case "", "0":
-		body = fmt.Sprintf(`{"videoquality":%s,"enableaudio":%s}`, quality, audioFlag)
+		return fmt.Sprintf(`{"videoquality":%s,"enableaudio":%s}`, quality, audioFlag)
+	case "both":
+		secondaryQuality = resolveQuality(model, secondaryQuality)
+		return fmt.Sprintf(
+			`{"videoquality":%s,"videoquality2":%s,"enableaudio":%s}`,
+			quality, secondaryQuality, audioFlag)
 	default:
-		body = fmt.Sprintf(`{"videoquality":-1,"videoquality2":%s,"enableaudio":%s}`, quality, audioFlag)
+		return fmt.Sprintf(
+			`{"videoquality":-1,"videoquality2":%s,"enableaudio":%s}`,
+			quality, audioFlag)
 	}
-
-	return c.writeCommand(command(cmdVideoStart, body))
 }
 
 // resolveQuality maps a friendly quality name onto the numeric profile the

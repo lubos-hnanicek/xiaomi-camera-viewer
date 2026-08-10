@@ -24,7 +24,7 @@ The pictures in the tiles are stand-ins rather than real camera output.
 - Camera settings driven by the device's own MIoT specification: night vision,
   HDR, image flip, motion detection and sensitivity, tracking, fill light,
   siren, indicator LED, recording mode and SD card status
-- Both lenses of a dual-lens CW500 as independent tiles
+- Both lenses of a dual-lens CW500 as independent tiles over one camera session
 - Automatic reconnection with backoff when a camera drops the session
 - Sign-in handles captchas and two-step verification; the resulting token is
   stored encrypted with your Windows account key
@@ -291,6 +291,22 @@ guessed:
 If a camera not in the table gives no picture or a small one on **High**, pick a
 numbered profile under **Override** in the Cameras view. `scripts/probe-quality.ps1`
 sweeps every profile against a real camera and reports what each returns.
+
+## Dual-lens sessions
+
+The CW500 accepts both `videoquality` and `videoquality2` in one video-start
+command. It then interleaves both HEVC feeds on the same media channel, each with
+its own monotonically increasing sequence counter. The bridge anchors the first
+counter while one lens is active, enables the combined stream when the other
+lens joins, and routes the two counters into the existing per-tile frame queues.
+
+The UI therefore still sees two independent stream handles and can decode or
+record each lens separately, while the camera sees only one peer-to-peer
+connection. This matters because Xiaomi dual-lens cameras allow only two live
+viewers: using two connections for the Windows tiles left no slot for Xiaomi
+Home. `scripts/probe-dual-session.ps1` captures the raw interleaving, and
+`scripts/verify-lenses.ps1` checks both decoded tiles against the shared remote
+endpoint.
 
 ## Pan and tilt
 

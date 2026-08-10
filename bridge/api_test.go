@@ -69,6 +69,25 @@ func TestEmptyRequestIsTreatedAsEmptyObject(t *testing.T) {
 	}
 }
 
+func TestIsDualLensModel(t *testing.T) {
+	tests := []struct {
+		model string
+		want  bool
+	}{
+		{"isa.camera.500dh", true},
+		{"isa.camera.hlmax", true},
+		{"vendor.camera.CW500", true},
+		{"isa.camera.hlc8a", false},
+		{"chuangmi.camera.046c04", false},
+	}
+
+	for _, tt := range tests {
+		if got := isDualLensModel(tt.model); got != tt.want {
+			t.Errorf("isDualLensModel(%q) = %v, want %v", tt.model, got, tt.want)
+		}
+	}
+}
+
 func TestLoginRequiresCredentials(t *testing.T) {
 	out := decode(t, handleCall("login.begin", []byte(`{"username":"","password":""}`)))
 

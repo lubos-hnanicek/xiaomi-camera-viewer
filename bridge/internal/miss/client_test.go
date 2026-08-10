@@ -44,3 +44,45 @@ func TestResolveQuality(t *testing.T) {
 		})
 	}
 }
+
+func TestMediaStartBody(t *testing.T) {
+	tests := []struct {
+		name      string
+		channel   string
+		primary   string
+		secondary string
+		audio     bool
+		want      string
+	}{
+		{
+			name:    "primary",
+			channel: "",
+			primary: "hd",
+			audio:   true,
+			want:    `{"videoquality":3,"enableaudio":1}`,
+		},
+		{
+			name:    "secondary",
+			channel: "1",
+			primary: "sd",
+			want:    `{"videoquality":-1,"videoquality2":1,"enableaudio":0}`,
+		},
+		{
+			name:      "both",
+			channel:   "both",
+			primary:   "hd",
+			secondary: "sd",
+			audio:     true,
+			want:      `{"videoquality":3,"videoquality2":1,"enableaudio":1}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := mediaStartBody(Model500DH, tt.channel, tt.primary, tt.secondary, tt.audio)
+			if got != tt.want {
+				t.Errorf("mediaStartBody() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
