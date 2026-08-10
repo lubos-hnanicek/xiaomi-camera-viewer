@@ -150,18 +150,21 @@ void drawTile(App& app, size_t index, CameraStream& stream, ImVec2 size, bool fo
             const float visibleSpan = 1.0f / factor;
             const float halfSpan = visibleSpan * 0.5f;
 
-            if (factor > 1.0f && imageHovered &&
-                ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-                zoom.tile = static_cast<int>(index);
+            if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+                app.setSelected(static_cast<int>(index));
 
-                // Keep the point under the cursor in the same place when the
-                // magnification starts, except where an image edge prevents it.
-                const float pointerX =
-                    std::clamp((io.MousePos.x - imageOrigin.x) / drawSize.x, 0.0f, 1.0f);
-                const float pointerY =
-                    std::clamp((io.MousePos.y - imageOrigin.y) / drawSize.y, 0.0f, 1.0f);
-                zoom.center.x = pointerX + (0.5f - pointerX) * visibleSpan;
-                zoom.center.y = pointerY + (0.5f - pointerY) * visibleSpan;
+                if (factor > 1.0f) {
+                    zoom.tile = static_cast<int>(index);
+
+                    // Keep the point under the cursor in the same place when the
+                    // magnification starts, except where an image edge prevents it.
+                    const float pointerX =
+                        std::clamp((io.MousePos.x - imageOrigin.x) / drawSize.x, 0.0f, 1.0f);
+                    const float pointerY =
+                        std::clamp((io.MousePos.y - imageOrigin.y) / drawSize.y, 0.0f, 1.0f);
+                    zoom.center.x = pointerX + (0.5f - pointerX) * visibleSpan;
+                    zoom.center.y = pointerY + (0.5f - pointerY) * visibleSpan;
+                }
             }
 
             zoomActive = zoom.tile == static_cast<int>(index) &&
