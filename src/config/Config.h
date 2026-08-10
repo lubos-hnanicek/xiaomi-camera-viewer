@@ -82,6 +82,9 @@ struct AppConfig {
     GridLayout layout = GridLayout::Auto;
     WindowPlacement window;
     float uiScale = 1.0f;
+    // Magnification used while the right mouse button is held over live video.
+    // It is intentionally config-file-only for now; 1.0 disables magnification.
+    float liveViewZoom = 2.0f;
 
     // Where recordings are written. Empty means the default, which is a folder
     // in the user's Videos library: recordings are large and belong where the

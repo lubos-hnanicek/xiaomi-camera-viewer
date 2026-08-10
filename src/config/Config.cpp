@@ -5,6 +5,7 @@
 #include <dpapi.h>
 #include <shlobj.h>
 
+#include <cmath>
 #include <fstream>
 
 #include <nlohmann/json.hpp>
@@ -221,6 +222,11 @@ AppConfig AppConfig::load() {
 
     config.layout = layoutFromInt(root.value("layout", 3));
     config.uiScale = root.value("ui_scale", 1.0f);
+    config.liveViewZoom = root.value("live_view_zoom", 2.0f);
+    if (!std::isfinite(config.liveViewZoom) || config.liveViewZoom < 1.0f) {
+        XV_WARN("live_view_zoom must be at least 1.0; using the default 2.0");
+        config.liveViewZoom = 2.0f;
+    }
     config.recordingsDir = root.value("recordings_dir", std::string{});
 
     XV_INFO("loaded config with {} camera(s) from {}", config.cameras.size(), path.string());
@@ -262,6 +268,7 @@ bool AppConfig::save() const {
     root["version"] = kConfigVersion;
     root["layout"] = static_cast<int>(layout);
     root["ui_scale"] = uiScale;
+    root["live_view_zoom"] = liveViewZoom;
 
     // Only written when it has been changed from the default, so the default can
     // still move with the user's Videos folder.

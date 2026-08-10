@@ -69,9 +69,12 @@ as soon as a camera is added.
 Click a tile to select it, or walk through them with `Tab` and `Shift+Tab`.
 Double-click a tile, or press `F`, to focus a single camera; `Esc` goes back. The
 arrow keys pan and tilt the selected camera, holding the movement for as long as
-the key is down, `R` starts or stops recording it, and `A` listens to it. While
-the live grid is on screen these keys belong to the cameras, so Tab does not walk
-the toolbar there the way it does on the other screens.
+the key is down, `R` starts or stops recording it, and `A` listens to it. Hold
+the right mouse button over live video to magnify it, then move the mouse while
+holding to pan around the image. The default is 2x; `live_view_zoom` in
+`%APPDATA%\XiaomiViewer\config.json` changes the factor, and `1.0` disables
+magnification. While the live grid is on screen these keys belong to the cameras,
+so Tab does not walk the toolbar there the way it does on the other screens.
 
 The focused tile gets a control pad in its bottom-left corner. Its arrows pan and
 tilt, and they are left out for a lens with no motor behind it, which the fixed

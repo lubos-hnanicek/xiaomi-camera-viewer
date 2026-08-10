@@ -59,6 +59,16 @@ std::string humanBytes(unsigned long long bytes) {
 
 namespace {
 
+struct LiveViewZoomState {
+    int tile = -1;
+    ImVec2 center = ImVec2(0.5f, 0.5f);
+};
+
+LiveViewZoomState& liveViewZoomState() {
+    static LiveViewZoomState state;
+    return state;
+}
+
 // Chooses a tile grid. Auto keeps tiles as close to square as it can, which is
 // what suits 16:9 video in a landscape window.
 void gridDimensions(GridLayout layout, size_t count, int& columns, int& rows) {
@@ -122,6 +132,7 @@ void drawTile(App& app, size_t index, CameraStream& stream, ImVec2 size, bool fo
 
         constexpr float kFooterHeight = 26.0f;
         const float videoHeight = std::max(available.y - kFooterHeight, 1.0f);
+        bool zoomActive = false;
 
         if (stream.texture.ready()) {
             ImVec2 drawSize;
@@ -129,8 +140,52 @@ void drawTile(App& app, size_t index, CameraStream& stream, ImVec2 size, bool fo
             letterbox(available.x, videoHeight, static_cast<float>(stream.texture.width()),
                       static_cast<float>(stream.texture.height()), drawSize, offset);
 
-            ImGui::SetCursorScreenPos(ImVec2(tileOrigin.x + offset.x, tileOrigin.y + offset.y));
-            ImGui::Image(reinterpret_cast<ImTextureID>(stream.texture.view()), drawSize);
+            const ImVec2 imageOrigin(tileOrigin.x + offset.x, tileOrigin.y + offset.y);
+            const ImVec2 imageEnd(imageOrigin.x + drawSize.x, imageOrigin.y + drawSize.y);
+            const bool imageHovered = ImGui::IsMouseHoveringRect(imageOrigin, imageEnd);
+            ImGuiIO& io = ImGui::GetIO();
+            LiveViewZoomState& zoom = liveViewZoomState();
+
+            const float factor = app.config().liveViewZoom;
+            const float visibleSpan = 1.0f / factor;
+            const float halfSpan = visibleSpan * 0.5f;
+
+            if (factor > 1.0f && imageHovered &&
+                ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+                zoom.tile = static_cast<int>(index);
+
+                // Keep the point under the cursor in the same place when the
+                // magnification starts, except where an image edge prevents it.
+                const float pointerX =
+                    std::clamp((io.MousePos.x - imageOrigin.x) / drawSize.x, 0.0f, 1.0f);
+                const float pointerY =
+                    std::clamp((io.MousePos.y - imageOrigin.y) / drawSize.y, 0.0f, 1.0f);
+                zoom.center.x = pointerX + (0.5f - pointerX) * visibleSpan;
+                zoom.center.y = pointerY + (0.5f - pointerY) * visibleSpan;
+            }
+
+            zoomActive = zoom.tile == static_cast<int>(index) &&
+                         ImGui::IsMouseDown(ImGuiMouseButton_Right);
+            if (zoomActive) {
+                // Dragging moves the picture with the mouse. Scaling by the UV
+                // span makes the movement feel the same at every zoom factor.
+                if (!ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+                    zoom.center.x -= io.MouseDelta.x * visibleSpan / drawSize.x;
+                    zoom.center.y -= io.MouseDelta.y * visibleSpan / drawSize.y;
+                }
+                zoom.center.x = std::clamp(zoom.center.x, halfSpan, 1.0f - halfSpan);
+                zoom.center.y = std::clamp(zoom.center.y, halfSpan, 1.0f - halfSpan);
+            }
+
+            const ImVec2 uv0 = zoomActive
+                                   ? ImVec2(zoom.center.x - halfSpan, zoom.center.y - halfSpan)
+                                   : ImVec2(0.0f, 0.0f);
+            const ImVec2 uv1 = zoomActive
+                                   ? ImVec2(zoom.center.x + halfSpan, zoom.center.y + halfSpan)
+                                   : ImVec2(1.0f, 1.0f);
+
+            ImGui::SetCursorScreenPos(imageOrigin);
+            ImGui::Image(reinterpret_cast<ImTextureID>(stream.texture.view()), drawSize, uv0, uv1);
         } else {
             const char* note = !stream.config.enabled ? "Disabled"
                                : status.state == StreamState::Failed
@@ -146,7 +201,7 @@ void drawTile(App& app, size_t index, CameraStream& stream, ImVec2 size, bool fo
         ImGui::InvisibleButton("##focus", ImVec2(available.x, videoHeight),
                                ImGuiButtonFlags_MouseButtonLeft);
         if (ImGui::IsItemHovered()) {
-            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            ImGui::SetMouseCursor(zoomActive ? ImGuiMouseCursor_ResizeAll : ImGuiMouseCursor_Hand);
         }
         if (ImGui::IsItemClicked()) {
             app.setSelected(static_cast<int>(index));
@@ -365,6 +420,13 @@ void drawToolbar(App& app) {
 void drawGridView(App& app) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 12));
     ImGui::BeginChild("##gridroot", ImVec2(0, 0), ImGuiChildFlags_None);
+
+    // A fresh press starts with no owner; the tile under it may claim the zoom
+    // below. This also clears stale state after leaving and returning to the grid.
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Right) ||
+        ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+        liveViewZoomState().tile = -1;
+    }
 
     drawToolbar(app);
     ImGui::Dummy(ImVec2(0, 6));
