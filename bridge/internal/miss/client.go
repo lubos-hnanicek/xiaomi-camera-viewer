@@ -141,6 +141,9 @@ func (c *Client) Close() error         { return c.conn.Close() }
 // Unhandled passes through the transport's count of data on channels this
 // bridge does not use, which is a diagnostic for a command that looks ignored.
 func (c *Client) Unhandled() ([4]uint64, [4][]byte) { return c.conn.Unhandled() }
+
+// Tap passes through whatever arrived on those channels, message by message.
+func (c *Client) Tap() []cs2.TapMessage { return c.conn.Tap() }
 func (c *Client) SetDeadline(t time.Time) error {
 	return c.conn.SetDeadline(t)
 }
@@ -278,6 +281,35 @@ func (c *Client) DeviceInfo() error {
 // body. See scripts/probe-playback.ps1.
 func (c *Client) SendRaw(cmd uint32, body string) error {
 	return c.writeCommand(command(cmd, body))
+}
+
+// SendChannel sends a command on a channel other than the command channel.
+//
+// The reason to want this is the SD card. Xiaomi's plugin SDK offers plugins two
+// ways to reach a camera: MISS commands, which is what everything above sends,
+// and a separate RDT path (sendRDTJSONCommandToDevice, bindRDTDataReceiveCallback)
+// whose per-device switch is even called setCurrentDeviceUseFixedRdtChannel. RDT
+// is the reliable file-transfer channel of the P2P stack CS2 is modelled on, and
+// file transfer is what playback of a recording is. This bridge opens channels 0
+// and 2 only, so if the answer to a playback request was ever meant to arrive on
+// another channel, it has been landing somewhere nothing was listening.
+//
+// encrypt says whether to wrap the command the way the command channel does.
+// Which of the two another channel wants is unknown, so it is the caller's
+// choice; everything after authentication on channel 0 is encrypted.
+func (c *Client) SendChannel(channel byte, cmd uint32, body string, encrypt bool) error {
+	data := command(cmd, body)
+
+	if encrypt {
+		enc, err := crypto.Encode(data, c.key)
+		if err != nil {
+			return err
+		}
+		// The envelope carries its own command id, as on the command channel.
+		data = append(binary.BigEndian.AppendUint32(nil, cmdEncoded), enc...)
+	}
+
+	return c.conn.WriteChannel(channel, data)
 }
 
 const hdrSize = 32

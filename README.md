@@ -45,6 +45,25 @@ wrong payload and an unsupported command look identical, which leaves nothing to
 search against. `scripts/probe-playback.ps1` is that experiment, kept so the
 next attempt starts from the evidence rather than repeating it.
 
+There is one thread left to pull. Xiaomi's plugin SDK offers a camera plugin two
+ways to reach the device: MISS commands, which is what this bridge sends, and a
+separate RDT path with its own send and receive calls and a per-device switch
+named `setCurrentDeviceUseFixedRdtChannel`. RDT is the reliable file-transfer
+channel of the peer-to-peer stack CS2 is modelled on, and a recording is a file.
+CS2 multiplexes four channels over one connection: this bridge opens 0 for
+commands and 2 for media, go2rtc's talkback writes speaker audio on 3, and
+nothing anywhere writes on 1.
+
+Channel 1 turns out not to be idle. A CW500 takes an encrypted command there
+without answering it and goes on streaming, and hangs up the moment an
+unencrypted one arrives -- so something on the camera is reading that channel and
+judging what it finds, which an unused channel would not do. Whether what
+offends it is the missing encryption or the four-byte length is the next
+question. `scripts/probe-rdt.ps1` runs this a candidate at a time, each on its
+own session, because a camera that has hung up ignores discovery for a few
+seconds afterwards and every later result on a dead session measures the
+disconnection rather than the candidate.
+
 ## Requirements
 
 - Windows 10 1809 or newer, 64-bit

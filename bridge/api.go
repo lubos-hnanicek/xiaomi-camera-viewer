@@ -488,6 +488,8 @@ func handleStreamCommand(s *stream.Session, request []byte) []byte {
 		Direction string `json:"direction"`
 		Body      string `json:"body"`
 		Cmd       uint32 `json:"cmd"`
+		Channel   byte   `json:"channel"`
+		Encrypt   *bool  `json:"encrypt"`
 	}
 	if err := json.Unmarshal(request, &req); err != nil {
 		return errResponse(err)
@@ -522,10 +524,23 @@ func handleStreamCommand(s *stream.Session, request []byte) []byte {
 		}
 		return okResponse(nil)
 
+	// The same again, one level lower still: the transport channel is the
+	// probe's to choose as well. Channel 0 carries commands and 2 carries media;
+	// what the other two do is the open question behind SD card playback, and
+	// nothing can answer it without sending on them. Encryption defaults to on,
+	// as it is on the command channel. See scripts/probe-rdt.ps1.
+	case "miss.channel":
+		encrypt := req.Encrypt == nil || *req.Encrypt
+		if err := s.RawChannel(req.Channel, req.Cmd, req.Body, encrypt); err != nil {
+			return errResponse(err)
+		}
+		return okResponse(nil)
+
 	case "replies":
 		return okResponse(map[string]any{
 			"replies":   s.Replies(),
 			"unhandled": s.Unhandled(),
+			"tap":       s.Tap(),
 		})
 
 	case "stats":
@@ -537,6 +552,7 @@ func handleStreamCommand(s *stream.Session, request []byte) []byte {
 			"replies":     st.Replies,
 			"last_reply":  st.LastReply,
 			"audio_asked": st.AudioAsked,
+			"error":       st.Error,
 		})
 
 	default:

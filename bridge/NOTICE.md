@@ -70,6 +70,20 @@ Upstream revision: `v1.9.14` (commit `b5948cfb25404cc5cb37b166ecaa2dca20b11d4b`)
 - The handshake reports what it saw when it times out, and compares peer
   addresses with `net.IP.Equal` rather than comparing the raw bytes, which
   differ between the 4-byte and 16-byte forms of the same address.
+- Data arriving on a channel the transport does not open is counted, kept
+  verbatim and acknowledged, instead of reaching a nil channel. Upstream
+  dereferences the channel without checking and indexes a four-element array with
+  a byte from the wire, so a data message on channel 1 or 3 panics its worker and
+  an unexpected channel byte is out of range. The acknowledgement matters beyond
+  not crashing: a sender that is never acknowledged retries and gives up, which
+  makes a channel that is working look like one that sent a single message and
+  stopped.
+- Sequence numbers are counted per channel, and `WriteChannel` sends on one that
+  is not the command channel. Upstream keeps a counter for channel 0 and another
+  for the channel 3 backchannel; a third channel would need a third. This exists
+  for the SD card investigation described in the README: the camera reads what
+  arrives on channel 1 and hangs up on a plaintext message there, which is the
+  only thing yet found that a camera does in response to anything about playback.
 
 ## When updating go2rtc
 

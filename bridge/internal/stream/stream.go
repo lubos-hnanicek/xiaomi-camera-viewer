@@ -74,6 +74,10 @@ type Stats struct {
 	// alone produced no audio. Diagnostic: it says which of the two a model
 	// needs, which is not documented anywhere.
 	AudioAsked bool `json:"audio_asked"`
+	// Why the session ended, empty while it is running. A probe that provokes a
+	// camera into hanging up otherwise sees only that the frames stopped, which
+	// looks the same as a camera that went quiet.
+	Error string `json:"error"`
 }
 
 // reply is one message from the command channel, in the form it arrived.
@@ -369,6 +373,26 @@ func (s *Session) Raw(cmd uint32, body string) error {
 	return s.mediaClient().SendRaw(cmd, body)
 }
 
+// RawChannel sends an arbitrary command on an arbitrary transport channel, for
+// probing the RDT path the SD card is suspected to live behind. See
+// scripts/probe-rdt.ps1.
+func (s *Session) RawChannel(channel byte, cmd uint32, body string, encrypt bool) error {
+	return s.mediaClient().SendChannel(channel, cmd, body, encrypt)
+}
+
+// Tap hands back the messages seen on channels this bridge does not open, as
+// hex, and forgets them. Unlike Unhandled, which only counts, this is the
+// content, which is what a probe has to read to learn anything.
+func (s *Session) Tap() []string {
+	msgs := s.mediaClient().Tap()
+
+	out := make([]string, len(msgs))
+	for i, m := range msgs {
+		out[i] = fmt.Sprintf("channel %d seq %d: %x", m.Channel, m.Seq, m.Data)
+	}
+	return out
+}
+
 // Unhandled describes traffic the transport had nowhere to put, per channel, as
 // a count and a hex sample. Only of interest while probing: a camera that
 // answers on a channel this bridge does not open looks silent without it.
@@ -395,6 +419,9 @@ func (s *Session) Stats() Stats {
 	}
 	if last := s.lastReply.Load(); last != nil {
 		st.LastReply = fmt.Sprintf("cmd=%#x %s", last.cmd, last.body)
+	}
+	if e := s.err.Load(); e != nil {
+		st.Error = (*e).Error()
 	}
 	return st
 }

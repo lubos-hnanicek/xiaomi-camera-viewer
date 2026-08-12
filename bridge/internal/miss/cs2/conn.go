@@ -49,8 +49,7 @@ type Conn struct {
 	net.Conn
 	isTCP bool
 
-	err    error
-	seqCh0 uint16
+	err error
 
 	channels [4]*dataChannel
 
@@ -60,6 +59,13 @@ type Conn struct {
 	// command the camera ignored.
 	unhandled [4]atomic.Uint64
 	sample    [4]atomic.Pointer[[]byte]
+
+	tapMu sync.Mutex
+	taps  [4][]TapMessage
+
+	// One sequence counter per channel, since each is numbered independently.
+	seqMu sync.Mutex
+	seq   [4]uint16
 
 	cmdMu  sync.Mutex
 	cmdAck func()
@@ -77,6 +83,49 @@ func (c *Conn) Unhandled() ([4]uint64, [4][]byte) {
 		}
 	}
 	return counts, samples
+}
+
+// TapMessage is one data message as it arrived on a channel this transport does
+// not reassemble, kept whole rather than parsed.
+type TapMessage struct {
+	Channel byte
+	Seq     uint16
+	Data    []byte
+}
+
+// tapDepth bounds what the tap remembers per channel. Deep enough to hold a
+// burst answering one probe command, shallow enough to be free when nobody
+// drains it.
+const tapDepth = 64
+
+// Tap hands back what arrived on the channels this transport does not open,
+// oldest first, and forgets it. Draining on read is what lets a probe attribute
+// a message to the command it just sent.
+//
+// The bytes are the data message verbatim, with no framing assumed. Channels 0,
+// 2 and 3 length-prefix their messages, but whether channel 1 does is exactly
+// the sort of thing this is here to find out, and a wrong guess would turn one
+// misread length into silence for the rest of the session.
+func (c *Conn) Tap() []TapMessage {
+	c.tapMu.Lock()
+	defer c.tapMu.Unlock()
+
+	var out []TapMessage
+	for ch := range c.taps {
+		out = append(out, c.taps[ch]...)
+		c.taps[ch] = c.taps[ch][:0]
+	}
+	return out
+}
+
+func (c *Conn) tap(ch byte, seq uint16, data []byte) {
+	c.tapMu.Lock()
+	defer c.tapMu.Unlock()
+
+	if len(c.taps[ch]) == tapDepth {
+		c.taps[ch] = append(c.taps[ch][:0], c.taps[ch][1:]...)
+	}
+	c.taps[ch] = append(c.taps[ch], TapMessage{Channel: ch, Seq: seq, Data: bytes.Clone(data)})
 }
 
 const (
@@ -181,12 +230,29 @@ func (c *Conn) worker() {
 		switch buf[1] {
 		case msgDrw:
 			ch := buf[5]
+			if int(ch) >= len(c.channels) {
+				continue // not a channel this protocol has, so not ours to answer
+			}
+
+			seqHI, seqLO := buf[6], buf[7]
+			seq := uint16(seqHI)<<8 | uint16(seqLO)
+
 			channel := c.channels[ch]
 			if channel == nil {
 				c.unhandled[ch].Add(1)
 				if c.sample[ch].Load() == nil {
 					sample := append([]byte(nil), buf[8:min(n, 8+64)]...)
 					c.sample[ch].Store(&sample)
+				}
+				c.tap(ch, seq, buf[8:n])
+
+				// Acknowledge it even though nothing here consumes it. A sender
+				// that gets no acknowledgement retries and then gives up, so
+				// staying silent would make a channel that is working look like
+				// one that sent a single message and stopped.
+				if !c.isTCP {
+					ack := []byte{magic, msgDrwAck, 0, 6, magicDrw, ch, 0, 1, seqHI, seqLO}
+					_, _ = c.Conn.Write(ack)
 				}
 				continue
 			}
@@ -203,8 +269,6 @@ func (c *Conn) worker() {
 			} else {
 				var pushed int
 
-				seqHI, seqLO := buf[6], buf[7]
-				seq := uint16(seqHI)<<8 | uint16(seqLO)
 				pushed, err = channel.PushSeq(seq, buf[8:n])
 
 				if pushed >= 0 {
@@ -271,8 +335,7 @@ func (c *Conn) WriteCommand(cmd uint32, data []byte) error {
 	c.cmdMu.Lock()
 	defer c.cmdMu.Unlock()
 
-	req := marshalCmd(0, c.seqCh0, cmd, data)
-	c.seqCh0++
+	req := marshalCmd(0, c.nextSeq(0), cmd, data)
 
 	if c.isTCP {
 		_, err := c.Conn.Write(req)
@@ -318,28 +381,65 @@ func (c *Conn) ReadPacket() (hdr, payload []byte, err error) {
 	return data[:hdrSize], data[hdrSize:], nil
 }
 
+// WriteChannel sends one data message on an arbitrary channel.
+//
+// Only channels 0 (commands) and 2 (media) are read here, and 3 is the speaker
+// backchannel, so this exists for probing the rest: what a camera does with a
+// message on a channel nothing sends on is not documented and cannot be read out
+// of any implementation. See scripts/probe-rdt.ps1.
+//
+// Unlike WriteCommand this sends once and does not wait to be acknowledged, so
+// over UDP a lost message stays lost. A probe repeats rather than relies on it,
+// and the retry logic belongs to the command channel it was written for.
+func (c *Conn) WriteChannel(channel byte, payload []byte) error {
+	if int(channel) >= len(c.channels) {
+		return fmt.Errorf("cs2: no channel %d", channel)
+	}
+
+	c.cmdMu.Lock()
+	defer c.cmdMu.Unlock()
+
+	_, err := c.Conn.Write(marshalData(channel, c.nextSeq(channel), nil, payload))
+	return err
+}
+
+func (c *Conn) nextSeq(channel byte) uint16 {
+	c.seqMu.Lock()
+	defer c.seqMu.Unlock()
+
+	seq := c.seq[channel]
+	c.seq[channel]++
+	return seq
+}
+
+// marshalCmd frames a command, which is a data message whose first four bytes
+// are the command id.
 func marshalCmd(channel byte, seq uint16, cmd uint32, payload []byte) []byte {
-	size := len(payload)
-	req := make([]byte, 4+4+4+4+size)
+	return marshalData(channel, seq, binary.BigEndian.AppendUint32(nil, cmd), payload)
+}
+
+// marshalData frames one data message. prefix and payload are concatenated and
+// counted as one message; the split exists only so a command id can be prepended
+// without copying the body twice.
+func marshalData(channel byte, seq uint16, prefix, payload []byte) []byte {
+	size := len(prefix) + len(payload)
+	req := make([]byte, 4+4+4+size)
 
 	// 1. message header
 	req[0] = magic
 	req[1] = msgDrw
-	binary.BigEndian.PutUint16(req[2:], uint16(4+4+4+size))
+	binary.BigEndian.PutUint16(req[2:], uint16(4+4+size))
 
 	// 2. data header
 	req[4] = magicDrw
 	req[5] = channel
 	binary.BigEndian.PutUint16(req[6:], seq)
 
-	// 3. payload size
-	binary.BigEndian.PutUint32(req[8:], uint32(4+size))
+	// 3. message size, which is what the far end reassembles against
+	binary.BigEndian.PutUint32(req[8:], uint32(size))
 
-	// 4. command id
-	binary.BigEndian.PutUint32(req[12:], cmd)
-
-	// 5. payload
-	copy(req[16:], payload)
+	copy(req[12:], prefix)
+	copy(req[12+len(prefix):], payload)
 
 	return req
 }
