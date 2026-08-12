@@ -1,39 +1,24 @@
 <#
 .SYNOPSIS
-    Checks the binaries that get code signed for the metadata a signature needs.
+    Checks that the release binaries carry consistent version metadata.
 
 .DESCRIPTION
-    SignPath's Open Source terms require every signed binary to carry a product
-    name matching the project and a product version identical across the release,
-    and enforce it with file metadata restrictions on the signing policy. A binary
-    that does not comply is not rejected at build time -- it is rejected when the
-    signing request is submitted, which is the worst possible moment to find out.
-
-    So the same conditions are checked here, on every build, from the project's
-    own definitions rather than from a second copy of the expected values.
-
-    The FFmpeg DLLs are deliberately not checked and deliberately not signed:
-    they are upstream binaries, and SignPath's terms allow shipping them unsigned
-    inside a signed package but not signing them with the project's certificate.
+    Reads the product name and version from the project's own definitions and
+    verifies that XiaomiViewer.exe and xmbridge.dll agree with them. The FFmpeg
+    DLLs are upstream binaries and therefore outside this project's metadata.
 
 .PARAMETER Configuration
     Which build output to check. Ignored if -Path is given.
 
 .PARAMETER Path
-    Directory holding the binaries, for checking a staged or signed copy instead.
-
-.PARAMETER RequireSignature
-    Also require a valid Authenticode signature. Used after signing, to catch a
-    signing request that reported success but returned something unsigned.
+    Directory holding the binaries, for checking a staged copy instead.
 #>
 [CmdletBinding()]
 param(
     [ValidateSet('Debug', 'RelWithDebInfo', 'Release')]
     [string]$Configuration = 'RelWithDebInfo',
 
-    [string]$Path,
-
-    [switch]$RequireSignature
+    [string]$Path
 )
 
 $ErrorActionPreference = 'Stop'
@@ -80,16 +65,6 @@ foreach ($name in @('XiaomiViewer.exe', 'xmbridge.dll')) {
     Test-Value 'ProductName' $info.ProductName $expectedProduct $name
     Test-Value 'ProductVersion' $info.ProductVersion $expectedVersion $name
     Test-Value 'FileVersion' $info.FileVersion $expectedVersion $name
-
-    if ($RequireSignature) {
-        $signature = Get-AuthenticodeSignature $file
-        if ($signature.Status -eq 'Valid') {
-            Write-Host "  PASS  $name is signed by $($signature.SignerCertificate.Subject)" -ForegroundColor Green
-        } else {
-            Write-Host "  FAIL  $name signature is $($signature.Status)" -ForegroundColor Red
-            $failures++
-        }
-    }
 }
 
 Write-Host ""

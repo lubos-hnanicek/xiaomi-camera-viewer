@@ -115,8 +115,7 @@ Write-Step "Built $outputDir\XiaomiViewer.exe"
 # --- Package ----------------------------------------------------------------
 
 # The app is handed out as a zip that is unpacked and run, so make the zip here
-# rather than leave the last step of a release to be done by hand. A release
-# build signs between the two halves and so calls package.ps1 itself; see there.
+# rather than leave the last step of a local build to be done by hand.
 if ($Package) {
     & (Join-Path $PSScriptRoot 'package.ps1') -Configuration $Configuration
 }

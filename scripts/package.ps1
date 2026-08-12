@@ -3,19 +3,10 @@
     Stages and archives a redistributable copy of the application.
 
 .DESCRIPTION
-    Two halves of one job, separable on purpose. A release is code signed, and a
-    signature has to be applied to the executable and the DLL *before* they are
-    zipped -- signing the archive afterwards would leave the files that Windows
-    actually checks unsigned. So the release workflow stages, hands the binaries
-    to SignPath, drops the signed ones back into the staging directory, and only
-    then archives:
-
-        package.ps1 -Stage        # build output -> dist/XiaomiViewer-<config>/
-        ... sign the binaries in place ...
-        package.ps1 -Archive      # that directory -> dist/*.zip
-
-    Run with neither switch, both happen in order, which is what a local build
-    wants and what build.ps1 -Package does.
+    Copies the runnable files and licence documents into a redistributable
+    directory, then writes application and symbol archives. The two phases can
+    be run separately when inspecting or rebuilding a staged package; with
+    neither switch they run in order.
 
 .PARAMETER Configuration
     Which build output to package. Debug stages but is never archived: it is not

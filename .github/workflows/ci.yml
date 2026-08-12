@@ -61,9 +61,8 @@ jobs:
       - name: Bridge ABI tests
         run: .\scripts\test-bridge-abi.ps1
 
-      # Signing is a release concern, but a missing version resource would only
-      # surface as a rejected signing request weeks later, so it is checked on
-      # every build instead.
+      # Keep the executable and bridge version resources consistent with the
+      # package name produced from the project version.
       - name: Check version metadata
         run: .\scripts\check-metadata.ps1 -Configuration RelWithDebInfo
 
@@ -71,8 +70,7 @@ jobs:
         run: .\scripts\package.ps1 -Configuration RelWithDebInfo
 
       # So a branch or a pull request can be tried without building it locally.
-      # These are unsigned, unlike a release: nothing here has been through
-      # SignPath, and Windows will say so on first run.
+      # Project binaries are unsigned, so Windows may warn on first run.
       - name: Upload the build
         uses: actions/upload-artifact@v7
         with:

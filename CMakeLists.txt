@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(XiaomiViewer
-    VERSION 0.3.0
+    VERSION 0.4.0
     DESCRIPTION "Native Windows viewer and controller for Xiaomi CW400/CW500 cameras"
     LANGUAGES CXX RC)
 
@@ -22,11 +22,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 # --- Version and publisher metadata -----------------------------------------
-# Windows PE metadata is a signing prerequisite rather than a nicety: SignPath's
-# Open Source terms require every signed binary to carry a product name and a
-# product version, identical across the whole release. So the project version
-# above is the only hand-written version in the tree, and it reaches the resource
-# compiler, the application manifest and the Go bridge from here.
+# Keep the project version above as the only hand-written version in the tree,
+# and feed it to the executable, manifest and Go bridge so Explorer and crash
+# reports identify every binary in a release consistently.
 set(XV_PRODUCT_NAME "Xiaomi Camera Viewer")
 set(XV_PUBLISHER "Xiaomi Camera Viewer contributors")
 set(XV_COPYRIGHT "Copyright (c) 2026 ${XV_PUBLISHER}")

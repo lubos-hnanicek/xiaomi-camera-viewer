@@ -220,19 +220,14 @@ bumping it is the whole of a version bump.
 
 ### Releases
 
-Published releases are built by GitHub Actions rather than locally, because the
-binaries are code signed and SignPath will only sign what it can independently
-verify was built by a workflow in this repository. See
-[docs/signing.md](docs/signing.md) for the release process, and
-[Code signing policy](#code-signing-policy) for what a signature means.
+Published releases are built by the
+[release workflow](.github/workflows/release.yml), not on a developer machine.
+The project binaries are unsigned, so Windows may show an unknown-publisher or
+SmartScreen warning when they are first run.
 
-The signature has to go on the binaries before they are packaged, which is why
-staging and archiving are separable:
-
-```powershell
-.\scripts\package.ps1 -Stage      # build output -> dist\XiaomiViewer-<config>\
-.\scripts\package.ps1 -Archive    # that directory -> dist\*.zip
-```
+To cut a release, bump `VERSION` in `CMakeLists.txt`, commit it, and push a
+matching tag such as `v0.4.0`. The workflow builds and tests that exact source,
+uploads the package and symbols, and creates a draft GitHub release for review.
 
 ## How it works
 
@@ -352,31 +347,7 @@ for working out a model that does not respond to the payload above.
   rejected with a clear message rather than silently failing.
 - Audio is mono, and playing it is one-way. There is no talkback.
 
-## Code signing policy
-
-`XiaomiViewer.exe` and `xmbridge.dll` in every release are Authenticode signed.
-Free code signing is provided by [SignPath.io](https://signpath.io), with a
-certificate by the [SignPath Foundation](https://signpath.org).
-
-Because the certificate belongs to the Foundation rather than to this project, a
-signature is a statement about where the binary came from: it was built by the
-[release workflow](.github/workflows/release.yml) from the source in this
-repository, on a GitHub-hosted runner, and a human approved that specific
-release. Nothing signed here was built on anybody's desktop. The FFmpeg DLLs that
-ship in the archive are upstream builds and are not signed by this project.
-
-To check a download yourself:
-
-```powershell
-Get-AuthenticodeSignature .\XiaomiViewer.exe | Format-List Status, SignerCertificate
-```
-
-### Team roles
-
-- Authors and reviewers: [lubos-hnanicek](https://github.com/lubos-hnanicek)
-- Approvers: [lubos-hnanicek](https://github.com/lubos-hnanicek)
-
-### Privacy
+## Privacy
 
 This program transfers information to networked systems only as needed to do what
 it was asked to do, and only to systems you choose:
@@ -392,9 +363,6 @@ it was asked to do, and only to systems you choose:
 - Your account token is stored on your PC only, encrypted with DPAPI so that it
   cannot be read by another Windows account. Recordings are written where you tell
   the app to write them and are never uploaded.
-
-The maintenance side of all this -- how to set the signing up, and how a release
-is cut -- is in [docs/signing.md](docs/signing.md).
 
 ## Credits and licensing
 

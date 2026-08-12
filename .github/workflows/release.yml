@@ -3,17 +3,11 @@ name: Release
 on:
   push:
     tags: ['v*']
-  # A dispatch run builds, packages and checks everything except the signature,
-  # so the release path can be exercised without spending a signing request or
-  # asking an approver to look at a test build.
+  # A dispatch run builds, tests and packages without creating a release.
   workflow_dispatch:
 
 permissions:
-  # contents: write to create the draft release, actions: read because SignPath
-  # downloads the unsigned artifact from the workflow run rather than trusting
-  # anything this job sends it.
   contents: write
-  actions: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -24,40 +18,16 @@ defaults:
     shell: pwsh
 
 env:
-  SIGNING: ${{ startsWith(github.ref, 'refs/tags/v') }}
+  RELEASING: ${{ startsWith(github.ref, 'refs/tags/v') }}
 
 jobs:
   release:
-    # SignPath's Open Source terms require every job leading up to a signing
-    # request to run on a GitHub-hosted runner, and the project needs the Visual
-    # Studio 2026 toolset.
+    # The project needs the Visual Studio 2026 toolset.
     runs-on: windows-2025
-    # Generous, because an Open Source signing request waits for a human to
-    # approve it and the job holds the artifact until it comes back.
-    timeout-minutes: 120
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v7
-
-      # Failing here beats failing halfway through, having already built and
-      # tagged a release that cannot be signed.
-      - name: Check SignPath configuration
-        if: env.SIGNING == 'true'
-        env:
-          ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
-        run: |
-          $missing = @()
-          if (-not $env:ORGANIZATION_ID) { $missing += 'variable SIGNPATH_ORGANIZATION_ID' }
-          if (-not $env:PROJECT_SLUG)    { $missing += 'variable SIGNPATH_PROJECT_SLUG' }
-          if (-not $env:POLICY_SLUG)     { $missing += 'variable SIGNPATH_SIGNING_POLICY_SLUG' }
-          if (-not $env:API_TOKEN)       { $missing += 'secret SIGNPATH_API_TOKEN' }
-          if ($missing.Count -gt 0) {
-            throw "SignPath is not configured for this repository. Missing: $($missing -join ', '). See docs/signing.md."
-          }
-          Write-Host "SignPath configuration is present"
 
       - uses: actions/setup-go@v7
         with:
@@ -80,14 +50,14 @@ jobs:
           Write-Host "project version $version"
 
       # The zip names, the version resource and the release title all come from
-      # CMakeLists.txt, so a tag that disagrees with it would publish a v0.4.0
-      # release full of files calling themselves 0.3.0.
+      # CMakeLists.txt, so a tag that disagrees with it could publish a release
+      # full of files that identify themselves as another version.
       - name: Check the tag matches the project version
-        if: env.SIGNING == 'true'
+        if: env.RELEASING == 'true'
         # The tag reaches PowerShell through the environment rather than through
         # ${{ }} interpolation, which would splice a ref name into the script
-        # itself. This job can sign and can publish; it is not the place to be
-        # relaxed about that.
+        # itself. This job can publish, so it is not the place to be relaxed
+        # about that.
         env:
           TAG: ${{ github.ref_name }}
           EXPECTED: v${{ steps.version.outputs.version }}
@@ -110,66 +80,8 @@ jobs:
       - name: Check version metadata
         run: .\scripts\check-metadata.ps1 -Configuration RelWithDebInfo
 
-      - name: Stage the package
-        run: .\scripts\package.ps1 -Configuration RelWithDebInfo -Stage
-
-      # Only the project's own binaries are submitted. The FFmpeg DLLs stay
-      # behind: SignPath's Open Source terms allow shipping upstream binaries
-      # unsigned inside a signed package, but not signing them with this
-      # project's certificate.
-      - name: Collect the binaries to sign
-        if: env.SIGNING == 'true'
-        run: |
-          New-Item -ItemType Directory -Force -Path unsigned | Out-Null
-          foreach ($name in 'XiaomiViewer.exe', 'xmbridge.dll') {
-            Copy-Item "dist\XiaomiViewer-RelWithDebInfo\$name" unsigned
-          }
-          Get-ChildItem unsigned | Format-Table Name, Length -AutoSize
-
-      # SignPath will only sign what it can fetch from GitHub itself, so the
-      # upload is a required step rather than a convenience.
-      - name: Upload the unsigned binaries
-        id: unsigned
-        if: env.SIGNING == 'true'
-        uses: actions/upload-artifact@v7
-        with:
-          name: unsigned-binaries
-          path: unsigned/
-          if-no-files-found: error
-
-      - name: Submit the signing request
-        if: env.SIGNING == 'true'
-        uses: signpath/github-action-submit-signing-request@v2
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
-          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: signed
-          # An Open Source signing policy requires a person to approve every
-          # request, so the wait is measured in minutes, not seconds.
-          wait-for-completion-timeout-in-seconds: 5400
-          parameters: |
-            version: ${{ toJSON(steps.version.outputs.version) }}
-
-      - name: Put the signed binaries into the package
-        if: env.SIGNING == 'true'
-        run: |
-          foreach ($name in 'XiaomiViewer.exe', 'xmbridge.dll') {
-            Copy-Item "signed\$name" "dist\XiaomiViewer-RelWithDebInfo\$name" -Force
-          }
-
-      # A signing request can report success and still hand back something that
-      # is not what shipped, so the package is checked rather than trusted.
-      - name: Verify the signatures
-        if: env.SIGNING == 'true'
-        run: .\scripts\check-metadata.ps1 -Path dist\XiaomiViewer-RelWithDebInfo -RequireSignature
-
-      - name: Archive the package
-        run: .\scripts\package.ps1 -Configuration RelWithDebInfo -Archive -RequireSymbols
+      - name: Package
+        run: .\scripts\package.ps1 -Configuration RelWithDebInfo -RequireSymbols
 
       - name: Upload the release archives
         uses: actions/upload-artifact@v7
@@ -181,7 +93,7 @@ jobs:
       # Left as a draft on purpose: the notes are worth writing by hand, and a
       # release that publishes itself is one that cannot be reconsidered.
       - name: Create the draft release
-        if: env.SIGNING == 'true'
+        if: env.RELEASING == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
