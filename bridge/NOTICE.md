@@ -49,10 +49,11 @@ Upstream revision: `v1.9.14` (commit `b5948cfb25404cc5cb37b166ecaa2dca20b11d4b`)
   ignores completely: those cameras answer the broadcast and nothing else, so
   under upstream they time out with no reply at all. Replies are still accepted
   only from the requested camera.
-- A camera the cloud has no address for is located by broadcasting the same
-  discovery packet and matching the MAC from the device list against the
-  replies. Upstream has nowhere to put this, since a go2rtc stream URL always
-  carries an address.
+- A camera with no saved address is located by broadcasting the same discovery
+  packet and recognising itself among the replies, either by the address the
+  cloud currently holds or by the MAC from the device list matched against the
+  neighbour table. Upstream has nowhere to put this, since a go2rtc stream URL
+  always carries an address.
 - Quality profile 3 was mapped for `isa.camera.hlc8`, `isa.camera.hlc8a`,
   `isa.camera.500dh` and `mxiang.camera.mod11`. Measured against the CW400 and
   CW500: profile 2 makes the CW400 accept the start command and then send

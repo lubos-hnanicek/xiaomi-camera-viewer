@@ -90,13 +90,29 @@ func TestBroadcastForLocalSubnet(t *testing.T) {
 	}
 }
 
-func TestFindByMACRejectsMalformed(t *testing.T) {
-	// A bad MAC must fail immediately rather than broadcast for the timeout.
-	start := time.Now()
-	if _, err := FindByMAC("nonsense", 5*time.Second); err == nil {
-		t.Fatal("expected an error for a malformed MAC")
+func TestFindRejectsUnusableHints(t *testing.T) {
+	// With nothing to recognise the camera by there is nothing to wait for, so
+	// this must fail immediately rather than broadcast for the timeout.
+	for _, ip := range []net.IP{nil, net.IPv4zero} {
+		start := time.Now()
+		if _, err := Find(ip, "nonsense", 5*time.Second); err == nil {
+			t.Fatalf("Find(%v, \"nonsense\") succeeded, want an error", ip)
+		}
+		if elapsed := time.Since(start); elapsed > time.Second {
+			t.Errorf("took %v to reject unusable hints, want an immediate failure", elapsed)
+		}
 	}
-	if elapsed := time.Since(start); elapsed > time.Second {
-		t.Errorf("took %v to reject a malformed MAC, expected an immediate failure", elapsed)
+}
+
+func TestFindSearchesForACloudAddressAlone(t *testing.T) {
+	// A camera behind a repeater answers from the address the cloud knows while
+	// the neighbour table shows the repeater's hardware address, so an unusable
+	// MAC must not stop the search: the address alone still identifies it.
+	start := time.Now()
+	if _, err := Find(net.ParseIP("203.0.113.7"), "", 300*time.Millisecond); err == nil {
+		t.Fatal("expected an error, nothing answers for TEST-NET-3")
+	}
+	if elapsed := time.Since(start); elapsed < 300*time.Millisecond {
+		t.Errorf("gave up after %v, want a search lasting the full timeout", elapsed)
 	}
 }

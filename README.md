@@ -290,9 +290,18 @@ broadcast of whichever local subnet contains it, and accepts the reply only from
 the camera it asked for. Cameras answer from a random high port, not from 32108.
 
 The cloud's address for a camera is also just a cache, and for some cameras it
-is missing entirely. When that happens the camera is located by broadcasting the
-same discovery packet and matching the MAC from the device list against the
-replies, so a camera with no cloud address still works.
+is missing entirely. A camera added while that was the case keeps 0.0.0.0 as its
+saved address, and is located instead by broadcasting the same discovery packet
+and picking itself out of the replies.
+
+Two facts identify it there, because either one alone fails on some network. One
+is the address the cloud holds now, which is what the camera itself last
+reported and is usually current even when the saved copy is not. The other is
+the MAC from the device list, matched against the neighbour table, which is what
+covers a camera the cloud has never had an address for. A MAC match needs the
+camera's own frames to reach the PC, so it fails behind a repeater or mesh node
+that answers ARP with an address of its own; the cloud's address covers that
+case, and the search accepts whichever answers first.
 
 ## Stream quality
 

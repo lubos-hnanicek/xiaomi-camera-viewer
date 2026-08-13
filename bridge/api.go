@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -360,11 +361,11 @@ func openStream(request []byte) (*stream.Session, []byte) {
 		return nil, errResponse(err)
 	}
 
-	// The cloud caches the address a camera last reported and sometimes has
-	// none at all, handing back 0.0.0.0. It still knows the MAC, and cameras
-	// answer a broadcast, so the camera can be found on the network instead.
+	// The caller's address is the one saved when the camera was added, and for a
+	// camera the cloud had no address for at the time it is 0.0.0.0 forever
+	// after. Those are located on the network instead.
 	host := req.IP
-	if host == "" || host == "0.0.0.0" {
+	if !hasAddress(host) {
 		host, err = locateOnLAN(acc, req.Did)
 		if err != nil {
 			return nil, errResponse(err)
@@ -449,36 +450,51 @@ func isDualLensModel(model string) bool {
 // device that is booting.
 const lanSearchTimeout = 8 * time.Second
 
-// locateOnLAN finds a camera by the MAC the cloud knows for it. The address is
-// not cached: it is only reached on the path where the cloud already failed to
-// supply one, and a camera whose address is unknown is exactly the one likely
-// to move again.
+// locateOnLAN finds a camera the caller has no usable address for, using what
+// the cloud currently says about it. That is worth re-reading even though the
+// caller has just been handed 0.0.0.0: the caller's address is a cached one,
+// saved when the camera was added, and the cloud may well have learnt where the
+// camera is since. The result is not cached in turn, because a camera whose
+// address had to be searched for is exactly the one likely to move again.
 func locateOnLAN(acc *cloud.Account, did string) (string, error) {
 	devices, err := acc.Devices()
 	if err != nil {
-		return "", fmt.Errorf("bridge: looking up the camera's hardware address: %w", err)
+		return "", fmt.Errorf("bridge: looking up where the camera is: %w", err)
 	}
 
-	var mac string
+	var dev *cloud.Device
 	for _, d := range devices {
 		if d.Did == did {
-			mac = d.MAC
+			dev = d
 			break
 		}
 	}
-	if mac == "" {
+	if dev == nil {
+		return "", fmt.Errorf("bridge: the cloud no longer lists this camera")
+	}
+	if dev.MAC == "" && !hasAddress(dev.IP) {
 		return "", fmt.Errorf(
 			"bridge: the cloud has neither an address nor a MAC for this camera")
 	}
 
-	ip, err := lan.FindByMAC(mac, lanSearchTimeout)
+	ip, err := lan.Find(net.ParseIP(dev.IP), dev.MAC, lanSearchTimeout)
 	if err != nil {
+		cloudIP := "none"
+		if hasAddress(dev.IP) {
+			cloudIP = dev.IP
+		}
 		return "", fmt.Errorf(
-			"bridge: the cloud has no address for this camera and nothing with MAC %s "+
-				"answered on the local network", mac)
+			"bridge: could not find this camera on the local network "+
+				"(cloud address %s, MAC %s): %w", cloudIP, dev.MAC, err)
 	}
 
 	return ip.String(), nil
+}
+
+// hasAddress reports whether the cloud gave a real address rather than the
+// 0.0.0.0 it hands back for a camera it has not heard from.
+func hasAddress(ip string) bool {
+	return ip != "" && ip != "0.0.0.0"
 }
 
 // handleStreamCommand runs an in-band command against a live session.

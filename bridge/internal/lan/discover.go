@@ -88,12 +88,29 @@ func localNets() []*net.IPNet {
 	return nets
 }
 
-// FindByMAC broadcasts a CS2 discovery packet on every attached subnet and
-// returns the address of the device whose hardware address matches mac.
-func FindByMAC(mac string, timeout time.Duration) (net.IP, error) {
+// Find broadcasts a CS2 discovery packet on every attached subnet and returns
+// the address of the camera identified by either hint it is given.
+//
+// A responder is the camera if it answers from cloudIP, the address the cloud
+// last recorded for it, or failing that if its hardware address matches mac.
+// Both are needed. The cloud's address goes stale when a camera moves, which is
+// what the MAC is for; and the MAC only matches when the camera's own frames
+// reach us, which is not so behind a repeater or mesh node that answers ARP on
+// the camera's behalf with an address of its own.
+//
+// Either hint may be absent. Nothing is dialled that did not just answer, so a
+// cloudIP that no longer belongs to the camera costs nothing.
+func Find(cloudIP net.IP, mac string, timeout time.Duration) (net.IP, error) {
 	want := NormalizeMAC(mac)
 	if len(want) != 12 {
-		return nil, fmt.Errorf("lan: %q is not a usable MAC address", mac)
+		want = ""
+	}
+	if cloudIP = cloudIP.To4(); cloudIP != nil && cloudIP.IsUnspecified() {
+		cloudIP = nil
+	}
+	if want == "" && cloudIP == nil {
+		return nil, fmt.Errorf(
+			"lan: nothing to look for: no address, and %q is not a usable MAC", mac)
 	}
 
 	nets := localNets()
@@ -134,35 +151,58 @@ func FindByMAC(mac string, timeout time.Duration) (net.IP, error) {
 	}()
 
 	// Each address is checked once: cameras retransmit, and an ARP lookup per
-	// duplicate would slow the search down for no benefit.
-	checked := map[string]bool{}
+	// duplicate would slow the search down for no benefit. The addresses are
+	// kept for the error, which is otherwise silent about whether the subnet
+	// was empty or full of devices that simply did not match.
+	var checked []string
+	seen := map[string]bool{}
 	buf := make([]byte, 1200)
 
 	for {
 		n, addr, err := conn.ReadFromUDP(buf)
 		if err != nil {
-			return nil, fmt.Errorf("lan: no device with MAC %s answered: %w", mac, err)
+			return nil, notFound(checked, err)
 		}
 		if n < 4 || buf[0] != 0xF1 {
 			continue
 		}
 
+		if cloudIP != nil && addr.IP.Equal(cloudIP) {
+			return append(net.IP(nil), addr.IP...), nil
+		}
+
 		key := addr.IP.String()
-		if checked[key] {
+		if seen[key] {
 			continue
 		}
-		checked[key] = true
+		seen[key] = true
+		checked = append(checked, key)
 
+		if want == "" {
+			continue
+		}
 		got, err := hardwareAddr(addr.IP)
 		if err != nil {
 			continue // gone from the neighbour table already
 		}
 		if NormalizeMAC(got.String()) == want {
-			ip := make(net.IP, len(addr.IP))
-			copy(ip, addr.IP)
-			return ip, nil
+			return append(net.IP(nil), addr.IP...), nil
 		}
 	}
+}
+
+// notFound distinguishes a subnet where nothing answered at all from one where
+// devices answered and none of them was the camera. The first is a camera that
+// is switched off, or replies being dropped before they arrive; the second is a
+// camera whose address and hardware address are both no longer what the cloud
+// believes, and knowing which devices did answer is where that search starts.
+func notFound(checked []string, err error) error {
+	if len(checked) == 0 {
+		return fmt.Errorf("lan: nothing on the local network answered: %w", err)
+	}
+	return fmt.Errorf(
+		"lan: none of the %d device(s) that answered was this camera (%s): %w",
+		len(checked), strings.Join(checked, ", "), err)
 }
 
 var (
