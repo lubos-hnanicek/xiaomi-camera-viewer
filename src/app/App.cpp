@@ -97,6 +97,24 @@ bool mostlyOnScreen(const RECT& rect) {
     return static_cast<double>(visible.area) >= static_cast<double>(total) * kMinVisibleFraction;
 }
 
+// GetWindowRect reports screen coordinates, while WINDOWPLACEMENT uses workspace
+// coordinates for an ordinary top-level window. Account for a taskbar docked to
+// the top or left of the window's monitor before putting that rectangle into a
+// WINDOWPLACEMENT structure.
+bool screenToWorkspace(RECT& rect) {
+    const HMONITOR monitor = ::MonitorFromRect(&rect, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO info{};
+    info.cbSize = sizeof(info);
+    if (monitor == nullptr || ::GetMonitorInfoW(monitor, &info) == 0) {
+        return false;
+    }
+
+    const int offsetX = info.rcWork.left - info.rcMonitor.left;
+    const int offsetY = info.rcWork.top - info.rcMonitor.top;
+    ::OffsetRect(&rect, -offsetX, -offsetY);
+    return true;
+}
+
 // Names the claim on being the only running copy. Local\ scopes it to the
 // signed-in user's session, which is the granularity the app's own state has:
 // the config and the log live in that user's %APPDATA%.
@@ -442,9 +460,21 @@ void App::rememberPlacement() {
         return;
     }
 
-    // rcNormalPosition is the restore rectangle, so this reads the same whether
-    // the window is maximized, minimized or neither.
-    const RECT& rect = placement.rcNormalPosition;
+    // Windows keeps the pre-snap restore rectangle in rcNormalPosition. When the
+    // window is neither minimized nor maximized, read its actual bounds instead
+    // so a snapped position is remembered. Minimized and maximized windows still
+    // need rcNormalPosition because their current bounds are not the bounds they
+    // should return to.
+    RECT rect = placement.rcNormalPosition;
+    if (::IsIconic(window_) == 0 && ::IsZoomed(window_) == 0) {
+        RECT current{};
+        if (::GetWindowRect(window_, &current) != 0 && screenToWorkspace(current)) {
+            rect = current;
+        } else {
+            XV_WARN("could not read the current window bounds (error {})", ::GetLastError());
+        }
+    }
+
     config_.window.x = rect.left;
     config_.window.y = rect.top;
     config_.window.width = rect.right - rect.left;

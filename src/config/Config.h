@@ -54,10 +54,10 @@ struct CameraConfig {
 // place. The rectangle is the restore position, which a maximized window has as
 // well: it is where the window goes when it is un-maximized.
 //
-// These are the coordinates GetWindowPlacement reports, and they are handed
-// straight back to SetWindowPlacement. Windows calls them workspace
-// coordinates: they are screen coordinates offset by the primary monitor's work
-// area, which is nothing at all unless the taskbar sits at the top or the left.
+// These are handed back to SetWindowPlacement in workspace coordinates. They
+// normally come from GetWindowPlacement; a visible, non-maximized window uses
+// GetWindowRect instead so Windows Snap's current bounds are kept, then converts
+// those screen coordinates to the same workspace coordinate system.
 struct WindowPlacement {
     int x = 0;
     int y = 0;
