@@ -36,6 +36,7 @@ public:
     [[nodiscard]] ID3D11DeviceContext* context() const { return context_.Get(); }
     [[nodiscard]] ID3D11VideoDevice* videoDevice() const { return videoDevice_.Get(); }
     [[nodiscard]] ID3D11VideoContext* videoContext() const { return videoContext_.Get(); }
+    [[nodiscard]] ID3D11SamplerState* mipSampler() const { return mipSampler_.Get(); }
     [[nodiscard]] bool valid() const { return device_ != nullptr; }
 
     // Serialises access to the immediate context, which is not free-threaded
@@ -63,6 +64,7 @@ private:
 
     ComPtr<ID3D11VideoDevice> videoDevice_;
     ComPtr<ID3D11VideoContext> videoContext_;
+    ComPtr<ID3D11SamplerState> mipSampler_;
 
     UINT width_ = 0;
     UINT height_ = 0;

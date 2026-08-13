@@ -61,6 +61,22 @@ bool D3D11Context::initialize(HWND window, std::string& error) {
         return false;
     }
 
+    // ImGui's stock sampler deliberately clamps textures to mip zero. Video
+    // tiles need the full chain so shrinking a 4K frame averages all source
+    // pixels instead of undersampling fine detail.
+    D3D11_SAMPLER_DESC sampler{};
+    sampler.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+    sampler.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+    sampler.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+    sampler.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+    sampler.ComparisonFunc = D3D11_COMPARISON_NEVER;
+    sampler.MinLOD = 0.0f;
+    sampler.MaxLOD = D3D11_FLOAT32_MAX;
+    if (FAILED(device_->CreateSamplerState(&sampler, mipSampler_.GetAddressOf()))) {
+        error = "Could not create the video minification sampler.";
+        return false;
+    }
+
     ComPtr<IDXGIDevice> dxgiDevice;
     ComPtr<IDXGIAdapter> adapter;
     ComPtr<IDXGIFactory2> factory;
@@ -116,6 +132,7 @@ bool D3D11Context::initialize(HWND window, std::string& error) {
 void D3D11Context::shutdown() {
     releaseRenderTarget();
     swapChain_.Reset();
+    mipSampler_.Reset();
     videoContext_.Reset();
     videoDevice_.Reset();
     multithread_.Reset();

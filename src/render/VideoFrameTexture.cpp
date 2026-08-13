@@ -85,12 +85,13 @@ bool VideoFrameTexture::ensurePipeline(D3D11Context& gpu, uint32_t width, uint32
     D3D11_TEXTURE2D_DESC texture{};
     texture.Width = width;
     texture.Height = height;
-    texture.MipLevels = 1;
+    texture.MipLevels = 0; // full chain for anti-aliased minification
     texture.ArraySize = 1;
     texture.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
     texture.SampleDesc.Count = 1;
     texture.Usage = D3D11_USAGE_DEFAULT;
     texture.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    texture.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
 
     if (FAILED(gpu.device()->CreateTexture2D(&texture, nullptr, outputTexture_.GetAddressOf()))) {
         XV_ERROR("could not allocate a {}x{} RGBA target", width, height);
@@ -199,6 +200,10 @@ bool VideoFrameTexture::update(D3D11Context& gpu, const AVFrame* frame) {
         XV_WARN("video processor blit failed (0x{:08X})", static_cast<unsigned>(hr));
         return false;
     }
+
+    // Build progressively filtered copies after colour conversion. The render
+    // sampler chooses and blends the levels matching the tile's screen size.
+    gpu.context()->GenerateMips(outputView_.Get());
 
     return true;
 }

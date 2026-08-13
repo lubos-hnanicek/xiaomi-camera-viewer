@@ -1,6 +1,7 @@
 #include "ui/Views.h"
 
 #include <imgui.h>
+#include <imgui_impl_dx11.h>
 
 #include <algorithm>
 #include <cmath>
@@ -67,6 +68,15 @@ struct LiveViewZoomState {
 LiveViewZoomState& liveViewZoomState() {
     static LiveViewZoomState state;
     return state;
+}
+
+void useMipSampler(const ImDrawList*, const ImDrawCmd* command) {
+    auto* renderState =
+        static_cast<ImGui_ImplDX11_RenderState*>(ImGui::GetPlatformIO().Renderer_RenderState);
+    auto* sampler = static_cast<ID3D11SamplerState*>(command->UserCallbackData);
+    if (renderState != nullptr && sampler != nullptr) {
+        renderState->DeviceContext->PSSetSamplers(0, 1, &sampler);
+    }
 }
 
 // Chooses a tile grid. Auto keeps tiles as close to square as it can, which is
@@ -188,7 +198,10 @@ void drawTile(App& app, size_t index, CameraStream& stream, ImVec2 size, bool fo
                                    : ImVec2(1.0f, 1.0f);
 
             ImGui::SetCursorScreenPos(imageOrigin);
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            drawList->AddCallback(useMipSampler, app.gpu().mipSampler());
             ImGui::Image(reinterpret_cast<ImTextureID>(stream.texture.view()), drawSize, uv0, uv1);
+            drawList->AddCallback(ImGui::GetPlatformIO().DrawCallback_ResetRenderState, nullptr);
         } else {
             const char* note = !stream.config.enabled ? "Disabled"
                                : status.state == StreamState::Failed
