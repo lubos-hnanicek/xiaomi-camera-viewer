@@ -112,9 +112,17 @@ void drawProperty(App& app, CameraStream& stream, const MiotProperty& property,
     ImGui::PopID();
 }
 
-void drawStorageSummary(const MiotClient& miot) {
-    const std::optional<MiotValue> total = miot.find(4, 2);
-    const std::optional<MiotValue> freeSpace = miot.find(4, 3);
+void drawStorageSummary(const CameraStream& stream) {
+    const MiotProperty* totalProperty = findCameraProperty(stream.config.model, "sd-total");
+    const MiotProperty* freeProperty = findCameraProperty(stream.config.model, "sd-free");
+    if (totalProperty == nullptr || freeProperty == nullptr || !stream.miot) {
+        return;
+    }
+
+    const std::optional<MiotValue> total =
+        stream.miot->find(totalProperty->siid, totalProperty->piid);
+    const std::optional<MiotValue> freeSpace =
+        stream.miot->find(freeProperty->siid, freeProperty->piid);
     if (!total.has_value() || !total->present || total->asInt() <= 0) {
         return;
     }
@@ -140,7 +148,7 @@ void drawActions(App& app, CameraStream& stream) {
 
     const bool busy = stream.miotTask.busy();
 
-    for (const auto& action : cameraActions()) {
+    for (const auto& action : cameraActions(stream.config.model)) {
         ImGui::PushID(action.key);
 
         ImGui::BeginDisabled(busy);
@@ -283,7 +291,7 @@ void drawSettingsView(App& app) {
     }
 
     if (ImGui::BeginChild("##settingsscroll", ImVec2(0, 0))) {
-        drawStorageSummary(*stream.miot);
+        drawStorageSummary(stream);
 
         // Group properties as the spec does, and skip whole groups the camera
         // does not implement rather than showing empty headings.
@@ -298,7 +306,7 @@ void drawSettingsView(App& app) {
             }
         };
 
-        for (const auto& property : cameraProperties()) {
+        for (const auto& property : cameraProperties(stream.config.model)) {
             if (!stream.miot->supported(property)) {
                 continue;
             }

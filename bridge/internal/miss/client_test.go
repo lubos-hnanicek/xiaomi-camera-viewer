@@ -25,6 +25,14 @@ func TestResolveQuality(t *testing.T) {
 		{"c200 hd", ModelC200, "hd", "3"},
 		{"c300 hd", ModelC300, "hd", "3"},
 
+		// A published CW300 go2rtc setup works without a subtype override;
+		// upstream's default is profile 2. Both regional ids keep that profile
+		// until a hardware sweep can replace the external evidence.
+		{"cw300 china hd", ModelMoc001, "hd", "2"},
+		{"cw300 china default", ModelMoc001, "", "2"},
+		{"cw300 global hd", ModelMoc006, "hd", "2"},
+		{"cw300 global default", ModelMoc006, "", "2"},
+
 		// sd and auto are not model specific, even for the odd models.
 		{"cw400a sd", ModelHLC8A, "sd", "1"},
 		{"cw400a auto", ModelHLC8A, "auto", "0"},

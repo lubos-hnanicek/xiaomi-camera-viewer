@@ -1110,7 +1110,7 @@ void App::addCamera(const DiscoveredDevice& device, const std::string& channel) 
     auto stream = std::make_unique<CameraStream>();
     stream->config = camera;
     stream->worker = std::make_unique<StreamWorker>();
-    stream->miot = std::make_unique<MiotClient>(config_.account, camera.did);
+    stream->miot = std::make_unique<MiotClient>(config_.account, camera.did, camera.model);
     if (camera.enabled) {
         stream->worker->start(gpu_, camera, config_.account);
     }
@@ -1154,7 +1154,7 @@ void App::startStreams() {
         auto stream = std::make_unique<CameraStream>();
         stream->config = camera;
         stream->worker = std::make_unique<StreamWorker>();
-        stream->miot = std::make_unique<MiotClient>(config_.account, camera.did);
+        stream->miot = std::make_unique<MiotClient>(config_.account, camera.did, camera.model);
         if (camera.enabled) {
             stream->worker->start(gpu_, camera, config_.account);
         }
@@ -1263,7 +1263,8 @@ void App::loadSettingsFor(CameraStream& stream) {
     }
 
     if (!stream.miot) {
-        stream.miot = std::make_unique<MiotClient>(config_.account, stream.config.did);
+        stream.miot =
+            std::make_unique<MiotClient>(config_.account, stream.config.did, stream.config.model);
     }
 
     stream.miotBusyLabel = "Reading settings";

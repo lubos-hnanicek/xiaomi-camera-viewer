@@ -1,7 +1,8 @@
 # Xiaomi Camera Viewer
 
 A native Windows application for watching and controlling Xiaomi CW400 and CW500
-cameras. One executable, no Docker, no WSL, no browser.
+cameras, with provisional support for the CW300. One executable, no Docker, no
+WSL, no browser.
 
 Video travels straight from the camera to your PC over the local network.
 Xiaomi's cloud is used only to sign in, list your devices, exchange the
@@ -318,6 +319,30 @@ If a camera not in the table gives no picture or a small one on **High**, pick a
 numbered profile under **Override** in the Cameras view. `scripts/probe-quality.ps1`
 sweeps every profile against a real camera and reports what each returns.
 
+## Experimental CW300 support
+
+The Chinese `mxiang.camera.moc001` and global/EU `mxiang.camera.moc006` CW300
+variants are recognised. Their published specifications describe a
+single-channel 2560x1440 camera using H.265 and Opus over MISS, and a working
+[go2rtc CW300 deployment](https://github.com/justi/xiaomi-cw300-unifi) uses the
+normal profile 2. The viewer therefore selects profile 2 for **High**, while
+keeping the numbered overrides available.
+
+The settings panel uses separate MIoT maps transcribed from the
+[moc001](https://home.miot-spec.com/spec/mxiang.camera.moc001) and
+[moc006](https://home.miot-spec.com/spec/mxiang.camera.moc006) specifications.
+This matters because several CW300 property numbers mean something different on
+the CW400/CW500 map, and the two CW300 regions even use different property
+numbers for AI detection.
+
+No CW300 has been tested with this project yet. Live video, audio and the
+published cloud settings have strong protocol evidence; pan and tilt are less
+certain. The control pad sends the same encrypted MISS `0x112`
+`{"operation":N}` steps verified on the CW400 and CW500, but there is no public
+CW300 capture confirming that payload. `scripts/probe-quality.ps1`,
+`scripts/probe-audio.ps1` and `scripts/probe-ptz.ps1` are the hardware
+acceptance tests when a camera becomes available.
+
 ## Dual-lens sessions
 
 The CW500 accepts both `videoquality` and `videoquality2` in one video-start
@@ -371,6 +396,9 @@ for working out a model that does not respond to the payload above.
   ignored. The picture keeps arriving, so this looks like broken pan and tilt
   rather than a camera that is busy. The app will not run twice for the same
   reason: launching it again brings the running copy to the front instead.
+- **CW300 support is provisional.** Its model ids, codecs, profile and settings
+  layout come from public specifications and working go2rtc deployments, but
+  its stream and motor controls have not been exercised against hardware here.
 - Cameras negotiating a transport other than CS2 (older TUTK-based models) are
   rejected with a clear message rather than silently failing.
 - Audio is mono, and playing it is one-way. There is no talkback.

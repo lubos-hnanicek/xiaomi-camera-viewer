@@ -61,6 +61,13 @@ Upstream revision: `v1.9.14` (commit `b5948cfb25404cc5cb37b166ecaa2dca20b11d4b`)
   both 2560x1440. The CW400 half matches
   [go2rtc#2074](https://github.com/AlexxIT/go2rtc/issues/2074) and
   [go2rtc#2313](https://github.com/AlexxIT/go2rtc/pull/2313).
+- Provisional CW300 handling recognises the Chinese `mxiang.camera.moc001` and
+  global/EU `mxiang.camera.moc006` model ids. Profile 2 is retained explicitly:
+  current go2rtc resolves unknown models to 2, and a
+  [working CW300 deployment](https://github.com/justi/xiaomi-cw300-unifi) uses
+  that default without an override. This is external evidence rather than a
+  local hardware measurement, so the numbered quality override and probe
+  scripts remain the fallback.
 - Dual-lens CW500 sessions are pooled by device. When both logical lenses are
   open, one video-start command enables `videoquality` and `videoquality2`;
   their independently increasing packet sequences are demultiplexed into the

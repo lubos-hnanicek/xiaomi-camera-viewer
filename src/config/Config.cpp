@@ -113,13 +113,23 @@ bool isDualLens(const std::string& model) {
            model.find("500dh") != std::string::npos;
 }
 
+bool isCw300(const std::string& model) {
+    // moc001 is the Chinese model and moc006 is the global/EU revision. Their
+    // published MIoT specifications describe the same 2560x1440 single-lens
+    // camera, with only a few regional property ids differing.
+    return model == "mxiang.camera.moc001" || model == "mxiang.camera.moc006";
+}
+
 bool hasMotor(const std::string& model) {
-    // Every model here exposes the pan/tilt services in its MIoT specification
-    // (a position readback and saved positions) and answers motor command 0x112.
+    // Every model here exposes pan/tilt in its MIoT specification. The CW400
+    // and CW500 have been verified against MISS command 0x112. CW300 uses the
+    // same MISS motor command family, but remains provisional until tested on
+    // hardware; scripts/probe-ptz.ps1 is the verification path.
     return model.find("hlc8") != std::string::npos ||  // CW400
            model.find("500dh") != std::string::npos || // CW500
            model.find("cw500") != std::string::npos ||
-           model.find(".hlmax") != std::string::npos;
+           model.find(".hlmax") != std::string::npos ||
+           isCw300(model);
 }
 
 bool CameraConfig::motorised() const {

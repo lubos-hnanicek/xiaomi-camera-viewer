@@ -88,7 +88,7 @@ struct Controls {
 
 Quick quickControl(const CameraStream& stream, const char* key) {
     Quick quick;
-    quick.property = findCameraProperty(key);
+    quick.property = findCameraProperty(stream.config.model, key);
     if (quick.property == nullptr) {
         return quick;
     }

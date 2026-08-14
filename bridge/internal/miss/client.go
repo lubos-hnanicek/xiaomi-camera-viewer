@@ -69,12 +69,14 @@ const (
 //
 // The CW400 behaviour matches go2rtc#2074 and go2rtc#2313.
 const (
-	ModelC200  = "chuangmi.camera.046c04"
-	ModelC300  = "chuangmi.camera.72ac1"
-	ModelHLC8  = "isa.camera.hlc8"  // CW400
-	ModelHLC8A = "isa.camera.hlc8a" // CW400, later revision
-	Model500DH = "isa.camera.500dh" // CW500, dual lens
-	ModelMod11 = "mxiang.camera.mod11"
+	ModelC200   = "chuangmi.camera.046c04"
+	ModelC300   = "chuangmi.camera.72ac1"
+	ModelHLC8   = "isa.camera.hlc8"  // CW400
+	ModelHLC8A  = "isa.camera.hlc8a" // CW400, later revision
+	Model500DH  = "isa.camera.500dh" // CW500, dual lens
+	ModelMod11  = "mxiang.camera.mod11"
+	ModelMoc001 = "mxiang.camera.moc001" // CW300, China
+	ModelMoc006 = "mxiang.camera.moc006" // CW300, global/EU
 )
 
 // Config is everything needed to open a session, as resolved from the cloud.
@@ -216,6 +218,11 @@ func resolveQuality(model, quality string) string {
 		switch model {
 		case ModelC200, ModelC300, ModelHLC8, ModelHLC8A, Model500DH, ModelMod11:
 			return "3"
+		case ModelMoc001, ModelMoc006:
+			// A working CW300 go2rtc deployment uses its default profile, which
+			// upstream resolves to 2. Keep this explicit so a future default
+			// change does not silently move this untested model.
+			return "2"
 		default:
 			return "2"
 		}

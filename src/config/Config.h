@@ -46,6 +46,10 @@ struct CameraConfig {
 // list but streams two channels, so the picker offers both.
 [[nodiscard]] bool isDualLens(const std::string& model);
 
+// Regional CW300 variants use different model ids and slightly different MIoT
+// property numbers, but share the same single-lens MISS/CS2 media path.
+[[nodiscard]] bool isCw300(const std::string& model);
+
 // Models with a pan and tilt motor. Anything not listed is assumed fixed, so a
 // new motorised model shows no pad rather than a pad that does nothing.
 [[nodiscard]] bool hasMotor(const std::string& model);

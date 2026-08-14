@@ -66,19 +66,16 @@ struct MiotValue {
 };
 
 // Describes the properties and actions worth exposing for a camera model.
-//
-// The table is drawn from the published CW500 dual specification, which is a
-// superset of what the single-lens and CW400 models implement. Rather than
-// maintaining a table per model, everything is requested and whatever the
-// camera rejects is simply not shown, so an unfamiliar model degrades to the
-// subset it actually supports instead of showing nothing.
-const std::vector<MiotProperty>& cameraProperties();
-const std::vector<MiotAction>& cameraActions();
+// Known models whose MIoT ids overlap with different meanings get a dedicated
+// table. Unknown models retain the original CW500-derived table and hide
+// properties they reject.
+const std::vector<MiotProperty>& cameraProperties(const std::string& model);
+const std::vector<MiotAction>& cameraActions(const std::string& model);
 
 // One property by key, for the places that want a specific setting rather than
 // the whole table. Null if the key is not in the table, which is a programming
 // mistake rather than something a camera can cause.
-const MiotProperty* findCameraProperty(std::string_view key);
+const MiotProperty* findCameraProperty(const std::string& model, std::string_view key);
 
 // MiotClient issues property and action calls for one camera.
 //
@@ -88,7 +85,7 @@ const MiotProperty* findCameraProperty(std::string_view key);
 // about to replace.
 class MiotClient {
 public:
-    MiotClient(AccountConfig account, std::string did);
+    MiotClient(AccountConfig account, std::string did, std::string model);
 
     // Reads every property in the table. Returns false if the call itself
     // failed, as opposed to individual properties being unsupported.
@@ -105,6 +102,7 @@ public:
 private:
     AccountConfig account_;
     std::string did_;
+    std::string model_;
 
     mutable std::mutex mutex_;
     std::vector<MiotValue> values_;

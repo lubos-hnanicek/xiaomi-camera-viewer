@@ -8,7 +8,7 @@ namespace {
 // Property table transcribed from the isa.camera.hlmax (CW500 dual) MIoT
 // specification. Service 6 is Xiaomi's grab-bag of vendor extensions, which is
 // where the fill light and siren live.
-const std::vector<MiotProperty> kProperties = {
+const std::vector<MiotProperty> kDefaultProperties = {
     // --- Image ---
     {"on", "Camera on", "Image", 2, 1, MiotType::Bool, true},
     {"night-shot", "Night vision", "Image", 2, 3, MiotType::Enum, true, 0, 0, 1,
@@ -73,7 +73,7 @@ const std::vector<MiotProperty> kProperties = {
      {{-1, "Default"}, {0, "Off"}, {1, "On"}}},
 };
 
-const std::vector<MiotAction> kActions = {
+const std::vector<MiotAction> kDefaultActions = {
     {"ptz-calibrate", "Calibrate pan and tilt", "Pan and tilt", 2, 1, false,
      "Re-homes the motor. The lens will sweep its full range."},
     {"ptz-calibrate-x", "Calibrate horizontal only", "Pan and tilt", 2, 3},
@@ -85,18 +85,91 @@ const std::vector<MiotAction> kActions = {
     {"sd-eject", "Eject SD card", "Maintenance", 4, 2, false},
 };
 
+std::vector<MiotProperty> cw300Properties(int humanDetectionPiid, int moveDetectionPiid) {
+    // The Chinese moc001 and global/EU moc006 specifications agree on this
+    // layout except for the two AI-detection property ids passed in here.
+    return {
+        // --- Image ---
+        {"on", "Camera on", "Image", 2, 1, MiotType::Bool, true},
+        {"night-shot", "Night vision", "Image", 2, 3, MiotType::Enum, true, 0, 0, 1,
+         {{0, "Off"}, {1, "On"}, {2, "Auto"}}},
+        {"image-rollover", "Rotate image", "Image", 2, 4, MiotType::Enum, true, 0, 0, 1,
+         {{0, "Normal"}, {90, "90 degrees"}, {180, "Upside down"}, {270, "270 degrees"}}},
+        {"time-watermark", "Timestamp overlay", "Image", 2, 5, MiotType::Bool, true},
+        {"image-distortion-correction", "Distortion correction", "Image", 2, 14,
+         MiotType::Bool, true},
+
+        // --- Detection ---
+        {"motion-detection", "Motion detection", "Detection", 5, 1, MiotType::Bool, true},
+        {"detection-sensitivity", "Sensitivity", "Detection", 5, 3, MiotType::Enum, true,
+         0, 0, 1, {{0, "Low"}, {1, "Medium"}, {2, "High"}}},
+        {"alarm-interval", "Alarm interval", "Detection", 5, 2, MiotType::Int, true, 1, 30,
+         1, {}, "Minutes to wait before raising the same alarm again."},
+        {"motion-detection-start-time", "Active from", "Detection", 5, 4, MiotType::String,
+         true},
+        {"motion-detection-end-time", "Active until", "Detection", 5, 5, MiotType::String,
+         true},
+        {"human-detection", "Human detection", "Detection", 8, humanDetectionPiid,
+         MiotType::Bool, true},
+        {"move-detection", "Frame change detection", "Detection", 8, moveDetectionPiid,
+         MiotType::Bool, true},
+
+        // --- Tracking ---
+        {"human-tracking", "Track people", "Tracking", 2, 9, MiotType::Bool, true},
+        {"ai-frame", "Highlight detections", "Tracking", 2, 10, MiotType::Bool, true},
+
+        // --- Lights and sound ---
+        {"indicator-light", "Status LED", "Lights and sound", 4, 1, MiotType::Bool, true},
+        {"hl-filllight-switch", "Fill light", "Lights and sound", 16, 1, MiotType::Bool,
+         true},
+        {"auto-sound-light-warning", "Automatic sound and light warning",
+         "Lights and sound", 2, 15, MiotType::Bool, true},
+        // Keep the established key so the live-view Alarm button uses this
+        // model's manual warning switch.
+        {"hl-audible-alarm", "Siren and warning light", "Lights and sound", 2, 16,
+         MiotType::Bool, true},
+
+        // --- Recording and storage ---
+        {"recording-mode", "Recording mode", "Recording", 2, 11, MiotType::Enum, true, 0,
+         0, 1, {{0, "Off"}, {1, "On motion"}, {2, "Continuous"}}},
+        {"sd-status", "SD card status", "Recording", 3, 1, MiotType::Int, false},
+        {"sd-total", "SD total (KB)", "Recording", 3, 2, MiotType::Int, false},
+        {"sd-free", "SD free (KB)", "Recording", 3, 3, MiotType::Int, false},
+        {"sd-used", "SD used (KB)", "Recording", 3, 4, MiotType::Int, false},
+    };
+}
+
+const std::vector<MiotProperty> kCw300Moc001Properties = cw300Properties(14, 15);
+const std::vector<MiotProperty> kCw300Moc006Properties = cw300Properties(22, 23);
+
+const std::vector<MiotAction> kCw300Actions = {
+    {"ptz-calibrate", "Calibrate pan and tilt", "Pan and tilt", 2, 1, false,
+     "Re-homes the motor. The lens will sweep its full range."},
+    {"restart-device", "Restart camera", "Maintenance", 2, 2, true,
+     "The camera will be offline for around a minute."},
+    {"sd-format", "Format SD card", "Maintenance", 3, 1, true,
+     "Erases every recording on the card. This cannot be undone."},
+    {"sd-eject", "Eject SD card", "Maintenance", 3, 2, false},
+};
+
 } // namespace
 
-const std::vector<MiotProperty>& cameraProperties() {
-    return kProperties;
+const std::vector<MiotProperty>& cameraProperties(const std::string& model) {
+    if (model == "mxiang.camera.moc001") {
+        return kCw300Moc001Properties;
+    }
+    if (model == "mxiang.camera.moc006") {
+        return kCw300Moc006Properties;
+    }
+    return kDefaultProperties;
 }
 
-const std::vector<MiotAction>& cameraActions() {
-    return kActions;
+const std::vector<MiotAction>& cameraActions(const std::string& model) {
+    return isCw300(model) ? kCw300Actions : kDefaultActions;
 }
 
-const MiotProperty* findCameraProperty(std::string_view key) {
-    for (const auto& property : kProperties) {
+const MiotProperty* findCameraProperty(const std::string& model, std::string_view key) {
+    for (const auto& property : cameraProperties(model)) {
         if (key == property.key) {
             return &property;
         }
@@ -104,12 +177,12 @@ const MiotProperty* findCameraProperty(std::string_view key) {
     return nullptr;
 }
 
-MiotClient::MiotClient(AccountConfig account, std::string did)
-    : account_(std::move(account)), did_(std::move(did)) {}
+MiotClient::MiotClient(AccountConfig account, std::string did, std::string model)
+    : account_(std::move(account)), did_(std::move(did)), model_(std::move(model)) {}
 
 bool MiotClient::refresh(std::string& error) {
     Json props = Json::array();
-    for (const auto& property : kProperties) {
+    for (const auto& property : cameraProperties(model_)) {
         props.push_back(Json{{"siid", property.siid}, {"piid", property.piid}});
     }
 
