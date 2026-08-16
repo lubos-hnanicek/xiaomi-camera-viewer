@@ -22,6 +22,21 @@ void drawPtzOverlay(App& app, CameraStream& stream, float x, float y, float widt
 // Camera settings, driven by the MIoT property table.
 void drawSettingsView(App& app);
 
+// The pages of the help window, named so the Help menu can ask for one of them
+// by name rather than by an index that would drift as pages are added.
+inline constexpr const char* kHelpTabStart = "Getting started";
+inline constexpr const char* kHelpTabControls = "Controls";
+inline constexpr const char* kHelpTabRecording = "Recording and sound";
+inline constexpr const char* kHelpTabCameras = "Cameras";
+inline constexpr const char* kHelpTabTrouble = "Troubleshooting";
+inline constexpr const char* kHelpTabAbout = "About";
+
+// Instructions, including what every key and mouse button does. `open` is the
+// window's own state, cleared when it is closed. `tab` names the page to bring
+// to the front, and is cleared once that has happened; null leaves the window on
+// whichever page was last read.
+void drawHelpWindow(App& app, bool& open, const char*& tab);
+
 // Shared helpers.
 namespace ui {
 

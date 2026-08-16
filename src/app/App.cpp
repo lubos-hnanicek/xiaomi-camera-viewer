@@ -497,6 +497,31 @@ bool App::setupImGui() {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.IniFilename = nullptr; // window layout is derived, not persisted
 
+    // The help and the log are read against the picture, so being unable to put
+    // one beside the window rather than on top of it is a real limitation. With
+    // viewports on, dragging one past the edge of the app hands it an OS window
+    // of its own, and it can go on another monitor entirely.
+    //
+    // Docking is deliberately left off: this app has fixed screens rather than a
+    // layout to arrange, and dock targets over live video would be noise.
+    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+
+    // A window that left the app is still part of it, so it is made an owned
+    // window rather than a top-level one of its own. Windows then keeps it above
+    // the app whatever is clicked, and brings it back up with it, which is the
+    // whole point: a help page that disappears behind the window it is being
+    // read against is no help at all. An owner is not a modal parent, so the app
+    // underneath stays fully usable.
+    //
+    // ImGui defaults this the other way, and without it every dragged-out window
+    // is a stranger to the app that Windows is free to bury behind it.
+    io.ConfigViewportsNoDefaultParent = false;
+
+    // No taskbar button for them either. They are panels of this app, not
+    // windows to alt-tab to. Being owned windows, they minimize and restore with
+    // the app rather than being left behind on an empty desktop.
+    io.ConfigViewportsNoTaskBarIcon = true;
+
     const float dpiScale = static_cast<float>(::GetDpiForWindow(window_)) / 96.0f;
     const float scale = dpiScale * config_.uiScale;
 
@@ -632,6 +657,7 @@ void App::frame() {
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
 
+    handleGlobalKeys();
     drawMenuBar();
 
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -683,12 +709,35 @@ void App::frame() {
         ImGui::End();
     }
 
+    if (showHelpWindow_) {
+        drawHelpWindow(*this, showHelpWindow_, helpTab_);
+    }
+
     ImGui::Render();
 
     constexpr float kClear[4] = {0.06f, 0.07f, 0.08f, 1.0f};
     gpu_.beginFrame(kClear);
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
+    // A window that has been dragged out of the main one draws into a swap chain
+    // of its own, which nothing else in this loop knows about. Both calls do
+    // nothing while everything is still inside.
+    ImGui::UpdatePlatformWindows();
+    ImGui::RenderPlatformWindowsDefault();
+
     gpu_.present(true);
+}
+
+void App::handleGlobalKeys() {
+    // Neither of these is a key a text field consumes, so unlike the grid's
+    // camera keys they need no guard against one having the keyboard: Ctrl+S in
+    // the middle of typing a password is still a request to save.
+    if (ImGui::IsKeyPressed(ImGuiKey_F1, false)) {
+        showHelpWindow_ = !showHelpWindow_;
+    }
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S)) {
+        config_.save();
+    }
 }
 
 void App::drawMenuBar() {
@@ -790,6 +839,24 @@ void App::drawMenuBar() {
     }
 
     if (ImGui::BeginMenu("Help")) {
+        if (ImGui::MenuItem("Contents", "F1")) {
+            showHelpWindow_ = true;
+            helpTab_ = nullptr;
+        }
+        if (ImGui::MenuItem("Keyboard and mouse")) {
+            showHelpWindow_ = true;
+            helpTab_ = kHelpTabControls;
+        }
+        if (ImGui::MenuItem("Troubleshooting")) {
+            showHelpWindow_ = true;
+            helpTab_ = kHelpTabTrouble;
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("About")) {
+            showHelpWindow_ = true;
+            helpTab_ = kHelpTabAbout;
+        }
+        ImGui::Separator();
         ImGui::TextDisabled("Xiaomi Camera Viewer %s", XV_VERSION);
         ImGui::TextDisabled("Bridge %s", Bridge::instance().version().c_str());
         ImGui::EndMenu();

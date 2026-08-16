@@ -13,7 +13,12 @@ files were taken and how they were modified.
 ## Dear ImGui
 
 [Dear ImGui](https://github.com/ocornut/imgui) by Omar Cornut, version
-`v1.92.9b`, is compiled into the executable. MIT license.
+`v1.92.9b-docking`, is compiled into the executable. MIT license.
+
+That is the `docking` branch's tag of the same release rather than the one on
+`master`. Multi-viewport support exists only on that branch, and it is what lets
+the help and log windows be dragged out of the application and become windows of
+their own. The docking feature itself is left switched off.
 
 ## FFmpeg
 

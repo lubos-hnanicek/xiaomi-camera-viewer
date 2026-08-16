@@ -133,6 +133,7 @@ add_executable(XiaomiViewer WIN32
     src/render/VideoFrameTexture.cpp
     src/ui/CamerasView.cpp
     src/ui/GridView.cpp
+    src/ui/HelpView.cpp
     src/ui/LoginView.cpp
     src/ui/PtzOverlay.cpp
     src/ui/SettingsView.cpp

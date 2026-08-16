@@ -96,6 +96,10 @@ holding to pan around the image. The default is 2x; `live_view_zoom` in
 magnification. While the live grid is on screen these keys belong to the cameras,
 so Tab does not walk the toolbar there the way it does on the other screens.
 
+All of this is in the app as well. **Help -> Contents**, or `F1`, opens a window
+with every key and mouse button it answers to, what recording and listening do,
+and what to check when a camera will not connect.
+
 The focused tile gets a control pad in its bottom-left corner. Its arrows pan and
 tilt, and they are left out for a lens with no motor behind it, which the fixed
 second lens of a CW500 is. Under them are the three settings worth reaching
@@ -198,6 +202,14 @@ The window opens where it was closed, maximized if it was left maximized. A
 saved position is dropped in favour of the default when less than half of the
 window would land on a monitor, so unplugging the screen it was on does not
 leave it somewhere it cannot be dragged back from.
+
+The help and the log are floating windows that need not stay inside the
+application: dragging one by its title bar past the edge of the window gives it a
+window of its own, which can sit beside the picture or on another monitor.
+Dragging it back inside puts it back. A window that has been let out is owned by
+the main one, so it stays above it instead of being buried by a click on the
+video, and it minimizes and restores along with it, without blocking anything
+underneath the way a dialog would.
 
 Settings and the log live under the **View** menu. Configuration is stored in
 `%APPDATA%\XiaomiViewer\config.json`, next to a log file that is worth reading

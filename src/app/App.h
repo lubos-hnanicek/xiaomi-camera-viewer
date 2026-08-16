@@ -183,6 +183,12 @@ private:
     void teardownImGui();
 
     void frame();
+
+    // The shortcuts that belong to the whole app rather than to one screen.
+    // ImGui draws a menu item's shortcut as a label and does nothing else with
+    // it, so the keys the menus advertise are answered here.
+    void handleGlobalKeys();
+
     void drawMenuBar();
 
     // The caption the app draws for itself: the three buttons, and the strip
@@ -229,6 +235,9 @@ private:
     int selected_ = -1;
     bool fullscreenTile_ = false;
     bool showLogWindow_ = false;
+    bool showHelpWindow_ = false;
+    // The help page the menu asked for, or null to leave the window where it was.
+    const char* helpTab_ = nullptr;
 };
 
 } // namespace xv
