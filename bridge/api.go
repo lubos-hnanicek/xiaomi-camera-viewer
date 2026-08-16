@@ -559,6 +559,13 @@ func handleStreamCommand(s *stream.Session, request []byte) []byte {
 			"tap":       s.Tap(),
 		})
 
+	// A diagnostic for dual-lens cameras: the media headers as they arrived,
+	// each with the lens the session routed it to. This is what says whether a
+	// tile is being fed its own lens and nothing else, which no amount of
+	// reasoning about the routing can establish. See scripts/probe-lens-id.ps1.
+	case "media.headers":
+		return okResponse(map[string]any{"headers": s.MediaHeaders()})
+
 	case "stats":
 		st := s.Stats()
 		return okResponse(map[string]any{

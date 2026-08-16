@@ -393,6 +393,17 @@ func (s *Session) Tap() []string {
 	return out
 }
 
+// MediaHeaders hands back the raw media headers a dual-lens session has seen,
+// each with the lens it was routed to, and forgets them. Only a shared session
+// captures them, because separating one camera's two interleaved streams is the
+// only thing here that has to know more than the header's known fields say.
+func (s *Session) MediaHeaders() []string {
+	if s.shared == nil {
+		return nil
+	}
+	return s.shared.MediaHeaders()
+}
+
 // Unhandled describes traffic the transport had nowhere to put, per channel, as
 // a count and a hex sample. Only of interest while probing: a camera that
 // answers on a channel this bridge does not open looks silent without it.

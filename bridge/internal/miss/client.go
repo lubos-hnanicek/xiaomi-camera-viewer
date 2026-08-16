@@ -328,6 +328,12 @@ type Packet struct {
 	Flags     uint32
 	Timestamp uint64 // milliseconds
 	Payload   []byte
+
+	// Header is the 32-byte media header verbatim. Only 20 of those bytes have
+	// a known meaning, and what a camera puts in the rest is worth reading when
+	// a stream carries something the known fields do not describe -- which lens
+	// of a dual-lens camera sent a packet, for one. See scripts/probe-lens-id.ps1.
+	Header []byte
 }
 
 // SampleRate decodes the audio sample rate the flags bitfield encodes.
@@ -337,6 +343,31 @@ func (p *Packet) SampleRate() uint32 {
 	}
 	return 8000
 }
+
+// lensTagMask selects the bits of the flags word that say which lens of a
+// multi-lens camera produced a packet.
+//
+// A dual-lens CW500 sends both lenses down one media channel and nothing
+// documents how to tell them apart, so this was measured: each lens was
+// captured on its own at every quality profile, which is the only situation
+// where the sender is known for certain. See scripts/probe-lens-id.ps1.
+//
+//	profile   primary   secondary
+//	0, 3-5     0x000E      0x014E
+//	1, 2       0x0006      0x0146
+//
+// Two bits separate the lenses at every profile and neither moves when the
+// encoding does, which is what makes them the lens and not the picture. The
+// remaining difference, 0x0008, follows the profile: the two that give the
+// 640x360 substream clear it and the 2560x1440 ones set it. Masking it off is
+// the point of this constant, because a tile whose quality is overridden
+// mid-session would otherwise stop matching its own lens.
+const lensTagMask = 0x0140
+
+// LensTag identifies which picture of a multi-lens camera a packet belongs to.
+// The value means nothing on its own: it is only ever compared with the tag of
+// a packet whose lens is known.
+func (p *Packet) LensTag() uint32 { return (p.Flags >> 16) & lensTagMask }
 
 func (c *Client) ReadPacket() (*Packet, error) {
 	hdr, payload, err := c.conn.ReadPacket()
@@ -359,6 +390,7 @@ func (c *Client) ReadPacket() (*Packet, error) {
 		Flags:     binary.LittleEndian.Uint32(hdr[12:]),
 		Timestamp: binary.LittleEndian.Uint64(hdr[16:]),
 		Payload:   payload,
+		Header:    hdr,
 	}, nil
 }
 

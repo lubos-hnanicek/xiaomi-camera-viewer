@@ -6,82 +6,198 @@ import (
 	"github.com/spec8472/xiaomi-viewer/bridge/internal/miss"
 )
 
-func TestSharedSequenceRouterSeparatesCapturedCW500Lanes(t *testing.T) {
+// Flags words as a real CW500 sends them, measured with one lens streaming at a
+// time so the sender of each was known. The pair per lens is the same picture
+// at its two encodings: 2560x1440 and the 640x360 substream.
+// See scripts/probe-lens-id.ps1.
+const (
+	capturedPrimaryFlags      uint32 = 0x000EA000
+	capturedPrimaryFlagsSub   uint32 = 0x0006A000
+	capturedSecondaryFlags    uint32 = 0x014EA000
+	capturedSecondaryFlagsSub uint32 = 0x0146A000
+)
+
+func lensTag(flags uint32) uint32 {
+	packet := miss.Packet{Flags: flags}
+	return packet.LensTag()
+}
+
+var (
+	capturedPrimaryTag   = lensTag(capturedPrimaryFlags)
+	capturedSecondaryTag = lensTag(capturedSecondaryFlags)
+)
+
+func TestSharedRouterSeparatesCapturedCW500Lenses(t *testing.T) {
 	physical := &sharedPhysical{
 		initial:    0,
 		firstVideo: make(chan struct{}),
 	}
 
-	// The first packet arrived while only lens 1 was requested, which anchors
-	// that counter to lane 0. The remaining numbers are from a real CW500 after
-	// enabling both videoquality fields on the same session.
-	if lane := physical.routeLocked(6935607); lane != 0 {
+	// The first packet arrived while only lens 1 was requested, which is what
+	// anchors its tag to lane 0.
+	if lane := physical.laneForLocked(capturedPrimaryTag); lane != 0 {
 		t.Fatalf("initial packet routed to lane %d, want 0", lane)
 	}
 	physical.dual = true
 
 	captured := []struct {
-		sequence uint32
+		tag      uint32
 		wantLane int
 	}{
-		{6928709, 1},
-		{6935608, 0},
-		{6928710, 1},
-		{6935609, 0},
-		{6928711, 1},
-		{6935610, 0},
-		{6935611, 0}, // one lens can deliver twice before the other catches up
-		{6928712, 1},
+		{capturedSecondaryTag, 1},
+		{capturedPrimaryTag, 0},
+		{capturedSecondaryTag, 1},
+		{capturedPrimaryTag, 0},
+		{capturedPrimaryTag, 0}, // one lens can deliver twice before the other
+		{capturedSecondaryTag, 1},
 	}
 
 	for _, packet := range captured {
-		if lane := physical.routeLocked(packet.sequence); lane != packet.wantLane {
-			t.Errorf("sequence %d routed to lane %d, want %d",
-				packet.sequence, lane, packet.wantLane)
+		if lane := physical.laneForLocked(packet.tag); lane != packet.wantLane {
+			t.Errorf("tag %#x routed to lane %d, want %d",
+				packet.tag, lane, packet.wantLane)
 		}
 	}
 }
 
-func TestSharedSequenceRouterDoesNotMergeNearbySeeds(t *testing.T) {
+// Opening the secondary lens first has to work the same way round, and it is
+// the case the constants cannot help with: the anchor is whichever lens was
+// asked for, not whichever tag happens to be the smaller number.
+func TestSharedRouterAnchorsWhicheverLensOpenedFirst(t *testing.T) {
 	physical := &sharedPhysical{
 		initial:    1,
 		firstVideo: make(chan struct{}),
 	}
 
-	if lane := physical.routeLocked(1000); lane != 1 {
+	if lane := physical.laneForLocked(capturedSecondaryTag); lane != 1 {
 		t.Fatalf("initial packet routed to lane %d, want 1", lane)
 	}
 	physical.dual = true
 
-	// Sequence counters are randomly seeded. A different lens can begin nearby,
-	// but only the exact successor belongs to the already anchored stream.
-	if lane := physical.routeLocked(1100); lane != 0 {
-		t.Errorf("new counter routed to lane %d, want 0", lane)
+	if lane := physical.laneForLocked(capturedPrimaryTag); lane != 0 {
+		t.Errorf("the other lens routed to lane %d, want 0", lane)
 	}
-	if lane := physical.routeLocked(1001); lane != 1 {
-		t.Errorf("initial counter successor routed to lane %d, want 1", lane)
-	}
-	if lane := physical.routeLocked(1101); lane != 0 {
-		t.Errorf("second counter successor routed to lane %d, want 0", lane)
+	if lane := physical.laneForLocked(capturedSecondaryTag); lane != 1 {
+		t.Errorf("the anchored lens routed to lane %d, want 1", lane)
 	}
 }
 
-func TestSharedSequenceRouterRemapsCombinedLensIdentity(t *testing.T) {
+// Sequence numbers used to decide this, and two lenses whose randomly seeded
+// counters run close together were exactly what that got wrong. The tag does
+// not care how far apart the counters are.
+func TestSharedRouterIgnoresSequenceNumbers(t *testing.T) {
 	physical := &sharedPhysical{
 		initial:    0,
 		firstVideo: make(chan struct{}),
 	}
 
-	if lane := physical.logicalLaneLocked(5000); lane != 0 {
-		t.Fatalf("single-lens packet routed to logical lane %d, want 0", lane)
+	physical.laneForLocked(capturedPrimaryTag)
+	physical.dual = true
+
+	for i := 0; i < 500; i++ {
+		if lane := physical.laneForLocked(capturedPrimaryTag); lane != 0 {
+			t.Fatalf("primary packet %d routed to lane %d, want 0", i, lane)
+		}
+		if lane := physical.laneForLocked(capturedSecondaryTag); lane != 1 {
+			t.Fatalf("secondary packet %d routed to lane %d, want 1", i, lane)
+		}
+	}
+}
+
+// The anchor must survive the upgrade. Sending the combined command is a
+// restart of the media flow, and the old router read the first packet after it
+// as evidence about which counter was which; this one has already decided.
+func TestSharedRouterKeepsItsAnchorAcrossTheUpgrade(t *testing.T) {
+	physical := &sharedPhysical{
+		initial:    0,
+		firstVideo: make(chan struct{}),
+	}
+
+	physical.laneForLocked(capturedPrimaryTag)
+	if !physical.initialTagKnown || physical.initialLensTag != capturedPrimaryTag {
+		t.Fatalf("anchor is %#x (known=%v), want %#x",
+			physical.initialLensTag, physical.initialTagKnown, capturedPrimaryTag)
 	}
 
 	physical.dual = true
-	if lane := physical.logicalLaneLocked(9000); lane != 0 {
-		t.Errorf("new combined counter routed to logical lane %d, want 0", lane)
+	// The secondary lens is the first to be heard from after the upgrade.
+	if lane := physical.laneForLocked(capturedSecondaryTag); lane != 1 {
+		t.Errorf("secondary lens routed to lane %d, want 1", lane)
 	}
-	if lane := physical.logicalLaneLocked(5001); lane != 1 {
-		t.Errorf("anchored combined counter routed to logical lane %d, want 1", lane)
+	if physical.initialLensTag != capturedPrimaryTag {
+		t.Errorf("anchor moved to %#x", physical.initialLensTag)
+	}
+	if lane := physical.laneForLocked(capturedPrimaryTag); lane != 0 {
+		t.Errorf("primary lens routed to lane %d, want 0", lane)
+	}
+}
+
+// Anchoring is what the attach handshake waits for, so it has to happen on the
+// first packet and not on the first one that happens to be from lane 0.
+func TestSharedRouterSignalsFirstVideoOnTheFirstPacket(t *testing.T) {
+	physical := &sharedPhysical{
+		initial:    1,
+		firstVideo: make(chan struct{}),
+	}
+
+	physical.laneForLocked(capturedSecondaryTag)
+	select {
+	case <-physical.firstVideo:
+	default:
+		t.Error("the first packet did not release a waiting dual-lens upgrade")
+	}
+}
+
+// Overriding one tile's quality re-sends the video-start command, and the
+// camera then encodes that lens differently. The lens has not changed, so its
+// tile must not either. Comparing the whole flags word instead of the lens bits
+// would send every packet of the re-encoded lens to the other tile.
+func TestSharedRouterSurvivesAQualityChange(t *testing.T) {
+	physical := &sharedPhysical{
+		initial:    0,
+		firstVideo: make(chan struct{}),
+	}
+
+	physical.laneForLocked(lensTag(capturedPrimaryFlags))
+	physical.dual = true
+
+	if lane := physical.laneForLocked(lensTag(capturedSecondaryFlags)); lane != 1 {
+		t.Fatalf("secondary lens routed to lane %d, want 1", lane)
+	}
+
+	// The primary tile drops to the substream, the secondary stays as it was.
+	if lane := physical.laneForLocked(lensTag(capturedPrimaryFlagsSub)); lane != 0 {
+		t.Errorf("the re-encoded primary lens routed to lane %d, want 0", lane)
+	}
+	if lane := physical.laneForLocked(lensTag(capturedSecondaryFlags)); lane != 1 {
+		t.Errorf("secondary lens routed to lane %d, want 1", lane)
+	}
+	// And the other way round, with the secondary on the substream.
+	if lane := physical.laneForLocked(lensTag(capturedSecondaryFlagsSub)); lane != 1 {
+		t.Errorf("the re-encoded secondary lens routed to lane %d, want 1", lane)
+	}
+}
+
+// The tag has to survive everything a lens does to its own picture and still
+// separate it from the other lens, which is the whole reason it is masked.
+func TestLensTagIdentifiesTheLensAndNothingElse(t *testing.T) {
+	if capturedPrimaryTag == capturedSecondaryTag {
+		t.Fatalf("both lenses produced tag %#x", capturedPrimaryTag)
+	}
+
+	if got := lensTag(capturedPrimaryFlagsSub); got != capturedPrimaryTag {
+		t.Errorf("the primary lens on the substream tagged %#x, want %#x",
+			got, capturedPrimaryTag)
+	}
+	if got := lensTag(capturedSecondaryFlagsSub); got != capturedSecondaryTag {
+		t.Errorf("the secondary lens on the substream tagged %#x, want %#x",
+			got, capturedSecondaryTag)
+	}
+
+	// The low half carries the keyframe bit and the audio sample rate, both of
+	// which change within one lens's stream.
+	if got := lensTag(capturedPrimaryFlags | 1); got != capturedPrimaryTag {
+		t.Errorf("a keyframe tagged %#x, want %#x", got, capturedPrimaryTag)
 	}
 }
 

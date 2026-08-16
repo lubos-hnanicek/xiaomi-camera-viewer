@@ -346,10 +346,30 @@ acceptance tests when a camera becomes available.
 ## Dual-lens sessions
 
 The CW500 accepts both `videoquality` and `videoquality2` in one video-start
-command. It then interleaves both HEVC feeds on the same media channel, each with
-its own monotonically increasing sequence counter. The bridge anchors the first
-counter while one lens is active, enables the combined stream when the other
-lens joins, and routes the two counters into the existing per-tile frame queues.
+command. It then interleaves both HEVC feeds on the same media channel, and the
+bridge has to say which picture each packet belongs to before either tile
+decodes it.
+
+The camera answers that itself. Two bits of the flags word in every media header
+stay with a lens for as long as it streams and differ between the two, so the
+bridge learns the tag of the lens that is already streaming, enables the
+combined stream when the second lens joins, and from then on sends each packet
+to the tile whose tag it carries. Nothing is inferred, so no packet can land on
+the wrong tile.
+
+Only those two bits are compared, because a third one nearby follows the
+encoding rather than the lens: it is set for the 2560x1440 profiles and clear
+for the 640x360 substream. Overriding one tile's quality would otherwise make
+that lens stop matching itself.
+
+This used to be inferred from the sequence counters instead, on the reasoning
+that each lens's counter advances by one while the other is thousands away. It was
+right for almost every packet and wrong for a handful a minute, and a single
+misrouted keyframe leaves the wrong lens on screen until the next real one,
+which is what "the tiles are swapped, sometimes" turned out to be.
+`scripts/probe-lens-id.ps1` is the measurement: it captures each lens alone to
+establish which tag belongs to which, then checks that a combined session puts
+nothing but that lens's packets on its tile.
 
 The UI therefore still sees two independent stream handles and can decode or
 record each lens separately, while the camera sees only one peer-to-peer

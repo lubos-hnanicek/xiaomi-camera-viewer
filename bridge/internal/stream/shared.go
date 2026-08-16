@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"bytes"
 	"fmt"
 	"sync"
 	"time"
@@ -60,11 +61,6 @@ func (p *SharedPool) remove(key string, physical *sharedPhysical) {
 	p.mu.Unlock()
 }
 
-type sequenceTrack struct {
-	valid bool
-	last  uint32
-}
-
 type sharedPhysical struct {
 	pool   *SharedPool
 	key    string
@@ -74,10 +70,14 @@ type sharedPhysical struct {
 	upgradeMu sync.Mutex
 	sessions  map[*Session]int
 	quality   [2]string
-	tracks    [2]sequenceTrack
 	initial   int
 	dual      bool
 	closed    bool
+
+	// The tag the initial lens's pictures carry, learnt from the stream rather
+	// than assumed, and the anchor everything else is told apart from.
+	initialLensTag  uint32
+	initialTagKnown bool
 
 	wantAudio     bool
 	audioSeen     bool
@@ -89,6 +89,53 @@ type sharedPhysical struct {
 	ended          chan struct{}
 	endOnce        sync.Once
 	shutdownOnce   sync.Once
+
+	headerMu  sync.Mutex
+	headerLog []headerSample
+}
+
+// headerSample is one video packet's media header kept verbatim, with the lens
+// it was routed to. The field that names the lens was found by reading whole
+// headers this way, against a capture of each lens on its own, and the next
+// multi-lens model has to be worked out the same way. Keeping the capture also
+// makes the routing checkable against hardware rather than only against its own
+// output. See scripts/probe-lens-id.ps1.
+type headerSample struct {
+	header []byte
+	lane   int
+}
+
+// headerLogDepth is a few seconds of two interleaved 25 fps streams, which is
+// all it takes to see whether a field is constant per lens.
+const headerLogDepth = 512
+
+func (p *sharedPhysical) recordHeader(header []byte, lane int) {
+	if len(header) == 0 {
+		return
+	}
+
+	p.headerMu.Lock()
+	defer p.headerMu.Unlock()
+
+	if len(p.headerLog) == headerLogDepth {
+		p.headerLog = append(p.headerLog[:0], p.headerLog[1:]...)
+	}
+	// Cloned because the header is a window onto the whole packet, and keeping
+	// the window alive would keep every captured payload alive with it.
+	p.headerLog = append(p.headerLog, headerSample{header: bytes.Clone(header), lane: lane})
+}
+
+// MediaHeaders hands back the captured headers, oldest first, and forgets them.
+func (p *sharedPhysical) MediaHeaders() []string {
+	p.headerMu.Lock()
+	defer p.headerMu.Unlock()
+
+	out := make([]string, len(p.headerLog))
+	for i, s := range p.headerLog {
+		out[i] = fmt.Sprintf("lane %d: %x", s.lane, s.header)
+	}
+	p.headerLog = p.headerLog[:0]
+	return out
 }
 
 func newSharedPhysical(
@@ -173,9 +220,10 @@ func (p *sharedPhysical) attach(cfg Config) (*Session, error) {
 	needsUpgrade := !p.dual && oppositePresent
 	p.mu.Unlock()
 
-	// The packets sent before the combined command identify the first lens's
-	// sequence lane. Waiting for one makes the later interleaving deterministic
-	// even when the two app workers connect at almost exactly the same time.
+	// Only the first lens is streaming until the combined command goes out, so
+	// a packet seen before it is the one thing that identifies that lens's tag
+	// beyond doubt. Waiting for one makes the interleaving that follows
+	// deterministic even when the two app workers connect at the same moment.
 	if needsUpgrade {
 		select {
 		case <-p.firstVideo:
@@ -265,7 +313,8 @@ func (p *sharedPhysical) reader() {
 				}
 			}
 		} else {
-			lane := p.logicalLaneLocked(frame.Sequence)
+			lane := p.laneForLocked(packet.LensTag())
+			p.recordHeader(packet.Header, lane)
 			for session, sessionLane := range p.sessions {
 				if sessionLane == lane {
 					session.enqueue(frame)
@@ -313,68 +362,31 @@ func (p *sharedPhysical) commandReader() {
 	}
 }
 
-func (p *sharedPhysical) logicalLaneLocked(sequence uint32) int {
-	lane := p.routeLocked(sequence)
-	if p.dual {
-		// Measured on isa.camera.500dh: switching from either single-lens
-		// request to the combined command reverses which picture owns the
-		// anchored sequence lane. Keep the logical channel stable for the UI.
-		return 1 - lane
-	}
-	return lane
-}
-
-// routeLocked separates the two sequence-number lanes observed in a combined
-// CW500 stream. Before the upgrade, every packet belongs to the known initial
-// lens. Afterwards, each lane normally advances by one and the wrong lane is
-// thousands of sequence numbers away.
-func (p *sharedPhysical) routeLocked(sequence uint32) int {
-	if !p.dual {
-		p.observeLocked(p.initial, sequence)
-		return p.initial
-	}
-
-	switch {
-	case p.tracks[0].valid && !p.tracks[1].valid:
-		if sequence-p.tracks[0].last <= maxInitialSequenceGap {
-			p.observeLocked(0, sequence)
-			return 0
-		}
-		p.observeLocked(1, sequence)
-		return 1
-	case !p.tracks[0].valid && p.tracks[1].valid:
-		if sequence-p.tracks[1].last <= maxInitialSequenceGap {
-			p.observeLocked(1, sequence)
-			return 1
-		}
-		p.observeLocked(0, sequence)
-		return 0
-	case !p.tracks[0].valid && !p.tracks[1].valid:
-		p.observeLocked(p.initial, sequence)
-		return p.initial
-	}
-
-	distance0 := sequence - p.tracks[0].last
-	distance1 := sequence - p.tracks[1].last
-	lane := 0
-	if distance1 < distance0 {
-		lane = 1
-	}
-	p.observeLocked(lane, sequence)
-	return lane
-}
-
-// CS2 reorders and retransmits before ReadPacket returns, so consecutive video
-// access units from one lens advance by exactly one. A wider window can mistake
-// the other lens's randomly seeded counter for this one when the seeds happen
-// to be close, permanently swapping the two tiles.
-const maxInitialSequenceGap uint32 = 1
-
-func (p *sharedPhysical) observeLocked(lane int, sequence uint32) {
-	p.tracks[lane] = sequenceTrack{valid: true, last: sequence}
-	if lane == p.initial {
+// laneForLocked decides which lens sent a packet, from the tag the camera puts
+// in the header of every one.
+//
+// Only the lens that was asked for can be streaming before the combined command
+// is sent, so the first tag to arrive is that lens's and is anchored here rather
+// than assumed. After the upgrade a packet belongs to that lens if it carries
+// that tag and to the other lens if it does not. Waiting for the anchor is what
+// the firstVideo handshake in attach is for.
+//
+// This used to be inferred from the sequence numbers instead, on the reasoning
+// that each lens's counter advances by one while the other is far away. It held
+// for most packets and quietly failed for a few per minute, which is worse than
+// failing outright: a stray access unit decoded into the wrong tile, and a stray
+// keyframe left the wrong lens on screen until the next real one.
+func (p *sharedPhysical) laneForLocked(tag uint32) int {
+	if !p.initialTagKnown {
+		p.initialLensTag = tag
+		p.initialTagKnown = true
 		p.firstVideoOnce.Do(func() { close(p.firstVideo) })
 	}
+
+	if tag == p.initialLensTag {
+		return p.initial
+	}
+	return 1 - p.initial
 }
 
 func (p *sharedPhysical) detach(session *Session) {

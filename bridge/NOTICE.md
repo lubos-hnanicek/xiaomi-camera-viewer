@@ -69,12 +69,21 @@ Upstream revision: `v1.9.14` (commit `b5948cfb25404cc5cb37b166ecaa2dca20b11d4b`)
   local hardware measurement, so the numbered quality override and probe
   scripts remain the fallback.
 - Dual-lens CW500 sessions are pooled by device. When both logical lenses are
-  open, one video-start command enables `videoquality` and `videoquality2`;
-  their independently increasing packet sequences are demultiplexed into the
-  two existing frame queues. This uses one camera connection instead of two,
-  leaving the model's other live-view slot available to Xiaomi Home. Measured
-  with `scripts/probe-dual-session.ps1` and checked end to end with
+  open, one video-start command enables `videoquality` and `videoquality2`, and
+  the two interleaved pictures are demultiplexed into the two existing frame
+  queues. This uses one camera connection instead of two, leaving the model's
+  other live-view slot available to Xiaomi Home. Measured with
+  `scripts/probe-dual-session.ps1` and checked end to end with
   `scripts/verify-lenses.ps1`.
+- Which lens sent a media packet is read from the flags word in its header,
+  which upstream parses for an audio sample rate and otherwise leaves alone.
+  Measured on a CW500 with `scripts/probe-lens-id.ps1`, capturing each lens on
+  its own at every quality profile: the top half reads 0x000E or 0x0006 for the
+  primary lens and 0x014E or 0x0146 for the secondary, so mask 0x0140 is the
+  part that identifies the lens and 0x0008 follows the encoding instead. The
+  bridge anchors the masked tag of the lens that is streaming before the
+  combined command goes out and compares against it; the bits are never
+  interpreted.
 - The handshake reports what it saw when it times out, and compares peer
   addresses with `net.IP.Equal` rather than comparing the raw bytes, which
   differ between the 4-byte and 16-byte forms of the same address.
