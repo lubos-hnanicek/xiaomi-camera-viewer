@@ -304,7 +304,8 @@ void drawAbout() {
     ImGui::Dummy(ImVec2(0, 10));
 
     paragraph("A native Windows viewer for Xiaomi CW400 and CW500 cameras, with provisional "
-              "support for the CW300. One executable, no Docker, no WSL, no browser.");
+              "support for the CW300 and CW700S. One executable, no Docker, no WSL, no "
+              "browser.");
 
     ImGui::SeparatorText("Privacy");
 

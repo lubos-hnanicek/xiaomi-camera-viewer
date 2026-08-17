@@ -142,6 +142,80 @@ std::vector<MiotProperty> cw300Properties(int humanDetectionPiid, int moveDetect
 const std::vector<MiotProperty> kCw300Moc001Properties = cw300Properties(14, 15);
 const std::vector<MiotProperty> kCw300Moc006Properties = cw300Properties(22, 23);
 
+// Property ids and enum values from the public isa.camera.700sa specification.
+// Although the CW700S has wide and telephoto sensors, Xiaomi presents them as
+// one hybrid-zoom camera and does not publish independent lens switches.
+const std::vector<MiotProperty> kCw700sProperties = {
+    // --- Image ---
+    {"on", "Camera on", "Image", 2, 1, MiotType::Bool, true},
+    {"night-shot", "Night vision", "Image", 2, 3, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Off"},
+      {1, "On"},
+      {2, "Auto"},
+      {3, "Auto full colour"},
+      {4, "Full colour"},
+      {5, "Smart full colour"}}},
+    {"image-rollover", "Rotate image", "Image", 2, 2, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Normal"}, {90, "90 degrees"}, {180, "Upside down"}, {270, "270 degrees"}}},
+    {"image-distortion-correction", "Distortion correction", "Image", 2, 12,
+     MiotType::Bool, true},
+    {"time-watermark", "Timestamp overlay", "Image", 2, 4, MiotType::Bool, true},
+
+    // --- Detection ---
+    {"motion-detection", "Motion detection", "Detection", 5, 1, MiotType::Bool, true},
+    {"detection-sensitivity", "Sensitivity", "Detection", 5, 3, MiotType::Enum, true,
+     0, 0, 1, {{1, "Low"}, {2, "Medium"}, {3, "High"}}},
+    {"alarm-interval", "Alarm interval", "Detection", 5, 2, MiotType::Int, true, 1, 30,
+     1, {}, "Minutes to wait before raising the same alarm again."},
+    {"motion-detection-start-time", "Active from", "Detection", 5, 4, MiotType::String,
+     true},
+    {"motion-detection-end-time", "Active until", "Detection", 5, 5, MiotType::String,
+     true},
+    {"human-detection", "Human detection", "Detection", 13, 4, MiotType::Bool, true},
+    {"move-detection", "Frame change detection", "Detection", 13, 5, MiotType::Bool,
+     true},
+
+    // --- Tracking ---
+    {"motion-tracking", "Track movement", "Tracking", 2, 8, MiotType::Bool, true},
+    {"human-tracking", "Track people", "Tracking", 2, 10, MiotType::Bool, true},
+    {"ai-frame", "Highlight detections", "Tracking", 2, 11, MiotType::Bool, true},
+
+    // --- Lights and sound ---
+    {"indicator-light", "Status LED", "Lights and sound", 3, 1, MiotType::Bool, true},
+    {"hl-filllight-switch", "Fill light", "Lights and sound", 6, 16, MiotType::Bool,
+     true},
+    {"hl-filllight-lum", "Fill light brightness", "Lights and sound", 6, 11,
+     MiotType::Int, true, 0, 100, 5},
+    {"hl-audible-alarm", "Siren", "Lights and sound", 6, 10, MiotType::Bool, true},
+    {"hl-nightvision-state", "Night vision active", "Lights and sound", 6, 17,
+     MiotType::Bool, false},
+
+    // --- Recording and storage ---
+    {"recording-mode", "Recording mode", "Recording", 2, 7, MiotType::Enum, true, 0,
+     0, 1, {{0, "Off"}, {1, "On motion"}, {2, "Continuous"}}},
+    {"sd-status", "SD card", "Recording", 4, 1, MiotType::Enum, false, 0, 0, 1,
+     {{0, "Ready"},
+      {1, "Not inserted"},
+      {2, "Low space"},
+      {3, "Device error"},
+      {4, "Formatting"},
+      {5, "Ejected"},
+      {6, "Not initialised"},
+      {7, "Too small"},
+      {8, "Incompatible"},
+      {9, "File error"}}},
+    {"sd-total", "SD total (KB)", "Recording", 4, 2, MiotType::Int, false},
+    {"sd-free", "SD free (KB)", "Recording", 4, 3, MiotType::Int, false},
+    {"sd-used", "SD used (KB)", "Recording", 4, 4, MiotType::Int, false},
+
+    // --- Pan and tilt ---
+    {"hl-get-location", "Current position", "Pan and tilt", 6, 12, MiotType::String,
+     false},
+    {"active-fav-area", "Active preset", "Pan and tilt", 9, 2, MiotType::Int, true, 0,
+     64, 1, {}, "Writing a preset number moves the lens to that saved position."},
+    {"fav-area", "Saved positions", "Pan and tilt", 9, 1, MiotType::String, false},
+};
+
 const std::vector<MiotAction> kCw300Actions = {
     {"ptz-calibrate", "Calibrate pan and tilt", "Pan and tilt", 2, 1, false,
      "Re-homes the motor. The lens will sweep its full range."},
@@ -150,6 +224,16 @@ const std::vector<MiotAction> kCw300Actions = {
     {"sd-format", "Format SD card", "Maintenance", 3, 1, true,
      "Erases every recording on the card. This cannot be undone."},
     {"sd-eject", "Eject SD card", "Maintenance", 3, 2, false},
+};
+
+const std::vector<MiotAction> kCw700sActions = {
+    {"ptz-calibrate", "Calibrate pan and tilt", "Pan and tilt", 2, 1, false,
+     "Re-homes the motor. The lens will sweep its full range."},
+    {"restart-device", "Restart camera", "Maintenance", 2, 2, true,
+     "The camera will be offline for around a minute."},
+    {"sd-format", "Format SD card", "Maintenance", 4, 1, true,
+     "Erases every recording on the card. This cannot be undone."},
+    {"sd-eject", "Eject SD card", "Maintenance", 4, 2, false},
 };
 
 } // namespace
@@ -161,11 +245,20 @@ const std::vector<MiotProperty>& cameraProperties(const std::string& model) {
     if (model == "mxiang.camera.moc006") {
         return kCw300Moc006Properties;
     }
+    if (isCw700s(model)) {
+        return kCw700sProperties;
+    }
     return kDefaultProperties;
 }
 
 const std::vector<MiotAction>& cameraActions(const std::string& model) {
-    return isCw300(model) ? kCw300Actions : kDefaultActions;
+    if (isCw300(model)) {
+        return kCw300Actions;
+    }
+    if (isCw700s(model)) {
+        return kCw700sActions;
+    }
+    return kDefaultActions;
 }
 
 const MiotProperty* findCameraProperty(const std::string& model, std::string_view key) {

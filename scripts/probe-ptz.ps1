@@ -155,7 +155,13 @@ if (-not $res.ok) { throw "device.list failed: $($res.error)" }
 
 # Models known to have a motor. Only used to pick a default target; an explicit
 # -Did is taken as given.
-$motorised = @('isa.camera.hlc8', 'isa.camera.hlc8a', 'isa.camera.500dh', 'isa.camera.hlmax')
+$motorised = @(
+    'isa.camera.hlc8',
+    'isa.camera.hlc8a',
+    'isa.camera.500dh',
+    'isa.camera.hlmax',
+    'isa.camera.700sa'
+)
 
 if ($Did) {
     $device = $res.devices | Where-Object { $_.did -eq $Did } | Select-Object -First 1

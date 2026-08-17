@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 
 project(XiaomiViewer
     VERSION 0.4.3
-    DESCRIPTION "Native Windows viewer and controller for Xiaomi CW400/CW500 cameras"
+    DESCRIPTION "Native Windows viewer and controller for Xiaomi cameras"
     LANGUAGES CXX RC)
 
 if(NOT WIN32)

@@ -1,8 +1,8 @@
 # Xiaomi Camera Viewer
 
 A native Windows application for watching and controlling Xiaomi CW400 and CW500
-cameras, with provisional support for the CW300. One executable, no Docker, no
-WSL, no browser.
+cameras, with provisional support for the CW300 and CW700S. One executable, no
+Docker, no WSL, no browser.
 
 Video travels straight from the camera to your PC over the local network.
 Xiaomi's cloud is used only to sign in, list your devices, exchange the
@@ -355,6 +355,35 @@ CW300 capture confirming that payload. `scripts/probe-quality.ps1`,
 `scripts/probe-audio.ps1` and `scripts/probe-ptz.ps1` are the hardware
 acceptance tests when a camera becomes available.
 
+## Experimental CW700S support
+
+The global/EU CW700S is recognised as `isa.camera.700sa`. Xiaomi's
+[product specification](https://www.mi.com/global/product/xiaomi-outdoor-camera-cw700s/specs/)
+documents 2560x1440 H.265 video, and go2rtc's
+[camera compatibility list](https://github.com/AlexxIT/go2rtc/issues/1982)
+identifies the model as using CS2. The viewer keeps the ordinary MISS profile 2
+for **High** until a hardware sweep establishes the numeric profile map; every
+number remains available under **Override**.
+
+The settings panel has a dedicated map transcribed from the
+[700sa MIoT specification](https://home.miot-spec.com/spec/isa.camera.700sa).
+It includes the model's six night-vision modes, detection and tracking,
+supplementary light, siren, recording, storage and pan-and-tilt properties
+without showing the unrelated CW500-only lens switches.
+
+CW700S contains wide-angle and telephoto sensors, but Xiaomi documents them as
+one [hybrid-zoom view](https://www.mi.com/my/support/faq/details/KA-491388/)
+that switches focal length along a zoom axis. No public capture shows two
+independently selectable MISS channels, so the viewer deliberately offers one
+tile and does not reuse the CW500 packet-tag demultiplexer. The zoom-axis command
+itself is not implemented because its MISS payload is not public.
+
+No CW700S has been tested with this project yet. Streaming, audio profile, pan
+and tilt, presets and quality selection still need the same hardware acceptance
+passes used for the other models: `scripts/probe-quality.ps1`,
+`scripts/probe-audio.ps1`, `scripts/probe-ptz.ps1` and
+`scripts/probe-presets.ps1`.
+
 ## Dual-lens sessions
 
 The CW500 accepts both `videoquality` and `videoquality2` in one video-start
@@ -431,6 +460,10 @@ for working out a model that does not respond to the payload above.
 - **CW300 support is provisional.** Its model ids, codecs, profile and settings
   layout come from public specifications and working go2rtc deployments, but
   its stream and motor controls have not been exercised against hardware here.
+- **CW700S support is provisional.** Its model id, transport, codec and settings
+  layout come from public sources, but its stream, audio, quality and motor
+  controls have not been exercised against hardware here. The viewer exposes
+  its hybrid-zoom camera as one tile and cannot select the telephoto sensor yet.
 - Cameras negotiating a transport other than CS2 (older TUTK-based models) are
   rejected with a clear message rather than silently failing.
 - Audio is mono, and playing it is one-way. There is no talkback.

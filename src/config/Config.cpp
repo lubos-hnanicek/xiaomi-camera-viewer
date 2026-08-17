@@ -120,16 +120,21 @@ bool isCw300(const std::string& model) {
     return model == "mxiang.camera.moc001" || model == "mxiang.camera.moc006";
 }
 
+bool isCw700s(const std::string& model) {
+    return model == "isa.camera.700sa";
+}
+
 bool hasMotor(const std::string& model) {
     // Every model here exposes pan/tilt in its MIoT specification. The CW400
-    // and CW500 have been verified against MISS command 0x112. CW300 uses the
-    // same MISS motor command family, but remains provisional until tested on
-    // hardware; scripts/probe-ptz.ps1 is the verification path.
+    // and CW500 have been verified against MISS command 0x112. CW300 and
+    // CW700S use the same provisional command until tested on hardware;
+    // scripts/probe-ptz.ps1 is the verification path.
     return model.find("hlc8") != std::string::npos ||  // CW400
            model.find("500dh") != std::string::npos || // CW500
            model.find("cw500") != std::string::npos ||
            model.find(".hlmax") != std::string::npos ||
-           isCw300(model);
+           isCw300(model) ||
+           isCw700s(model);
 }
 
 bool CameraConfig::motorised() const {

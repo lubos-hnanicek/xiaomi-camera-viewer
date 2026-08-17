@@ -33,6 +33,11 @@ func TestResolveQuality(t *testing.T) {
 		{"cw300 global hd", ModelMoc006, "hd", "2"},
 		{"cw300 global default", ModelMoc006, "", "2"},
 
+		// No hardware profile sweep has been published for the CW700S. Keep the
+		// ordinary MISS default until scripts/probe-quality.ps1 can measure one.
+		{"cw700s hd", Model700SA, "hd", "2"},
+		{"cw700s default", Model700SA, "", "2"},
+
 		// sd and auto are not model specific, even for the odd models.
 		{"cw400a sd", ModelHLC8A, "sd", "1"},
 		{"cw400a auto", ModelHLC8A, "auto", "0"},

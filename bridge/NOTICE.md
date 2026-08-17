@@ -68,6 +68,13 @@ Upstream revision: `v1.9.14` (commit `b5948cfb25404cc5cb37b166ecaa2dca20b11d4b`)
   that default without an override. This is external evidence rather than a
   local hardware measurement, so the numbered quality override and probe
   scripts remain the fallback.
+- Provisional CW700S handling recognises `isa.camera.700sa`, which go2rtc's
+  [camera list](https://github.com/AlexxIT/go2rtc/issues/1982) identifies as a
+  CS2 model. It retains profile 2 explicitly and remains a single stream:
+  Xiaomi documents its wide and telephoto sensors as one hybrid-zoom view, and
+  no public capture establishes independent MISS channels or the CW500 packet
+  tags. Its MIoT controls come from the public
+  [700sa specification](https://home.miot-spec.com/spec/isa.camera.700sa).
 - Dual-lens CW500 sessions are pooled by device. When both logical lenses are
   open, one video-start command enables `videoquality` and `videoquality2`, and
   the two interleaved pictures are demultiplexed into the two existing frame

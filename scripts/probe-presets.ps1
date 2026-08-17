@@ -83,7 +83,13 @@ if (-not $res.ok) { throw "login.token failed: $($res.error)" }
 $res = [XmFav]::Call('device.list', (@{ user_id = $userId } | ConvertTo-Json -Compress)) | ConvertFrom-Json
 if (-not $res.ok) { throw "device.list failed: $($res.error)" }
 
-$motorised = @('isa.camera.hlc8', 'isa.camera.hlc8a', 'isa.camera.500dh', 'isa.camera.hlmax')
+$motorised = @(
+    'isa.camera.hlc8',
+    'isa.camera.hlc8a',
+    'isa.camera.500dh',
+    'isa.camera.hlmax',
+    'isa.camera.700sa'
+)
 $targets = if ($Did) {
     $res.devices | Where-Object { $_.did -eq $Did }
 } else {

@@ -50,6 +50,10 @@ struct CameraConfig {
 // property numbers, but share the same single-lens MISS/CS2 media path.
 [[nodiscard]] bool isCw300(const std::string& model);
 
+// CW700S has wide and telephoto sensors, but presents them as one hybrid-zoom
+// view rather than two independently selectable tiles.
+[[nodiscard]] bool isCw700s(const std::string& model);
+
 // Models with a pan and tilt motor. Anything not listed is assumed fixed, so a
 // new motorised model shows no pad rather than a pad that does nothing.
 [[nodiscard]] bool hasMotor(const std::string& model);

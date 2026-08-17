@@ -78,6 +78,10 @@ func TestIsDualLensModel(t *testing.T) {
 		{"isa.camera.hlmax", true},
 		{"vendor.camera.CW500", true},
 		{"isa.camera.hlc8a", false},
+		// CW700S uses two focal lengths for one hybrid-zoom view. Do not put it
+		// through the CW500 independent-channel and packet-tag path without a
+		// hardware capture proving that it exposes both feeds that way.
+		{"isa.camera.700sa", false},
 		{"chuangmi.camera.046c04", false},
 	}
 
