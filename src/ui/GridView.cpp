@@ -249,6 +249,17 @@ void drawTile(App& app, size_t index, CameraStream& stream, ImVec2 size, bool fo
             const auto seconds = status.recordedMs / 1000;
             recording = std::format("REC {}:{:02}", seconds / 60, seconds % 60);
         }
+        if (app.globallyRecording(stream)) {
+            const GlobalRecorder::Status global = app.globalRecordingStatus();
+            std::string all;
+            if (global.state == GlobalRecorder::State::Preparing) {
+                all = "ALL STARTING";
+            } else {
+                const auto seconds = global.durationMs / 1000;
+                all = std::format("ALL REC {}:{:02}", seconds / 60, seconds % 60);
+            }
+            recording = recording.empty() ? all : std::format("{}  {}", recording, all);
+        }
 
         const char* audible = status.audible ? "AUDIO" : "";
 
@@ -323,7 +334,7 @@ void handleKeys(App& app, size_t reachable) {
     if (ImGui::IsKeyPressed(ImGuiKey_F)) {
         app.setFullscreenTile(!app.fullscreenTile());
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_R)) {
+    if (!io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_R)) {
         app.toggleRecording(*streams[static_cast<size_t>(selected)]);
     }
     if (ImGui::IsKeyPressed(ImGuiKey_A)) {
@@ -413,6 +424,34 @@ void drawToolbar(App& app) {
         ImGui::Dummy(ImVec2(12, 0));
         ImGui::SameLine();
 
+        const GlobalRecorder::Status global = app.globalRecordingStatus();
+        const bool globalBusy = app.globalRecordingActive();
+        ImGui::BeginDisabled(!globalBusy && !app.globalRecordingAvailable());
+        if (ImGui::Button(globalBusy ? "Stop global REC" : "Record all live")) {
+            app.toggleGlobalRecording();
+        }
+        ImGui::EndDisabled();
+        ImGui::SetItemTooltip("One video track per live view and one audio track per physical "
+                              "camera in a single MKV (Shift+R)");
+
+        if (global.state == GlobalRecorder::State::Preparing) {
+            ImGui::SameLine();
+            ImGui::TextColored(theme::kPending, "Preparing %zu/%zu", global.prepared,
+                               global.participants);
+        } else if (global.state == GlobalRecorder::State::Recording) {
+            ImGui::SameLine();
+            const int64_t seconds = global.durationMs / 1000;
+            ImGui::TextColored(theme::kFailed, "REC %lld:%02lld  %s",
+                               static_cast<long long>(seconds / 60),
+                               static_cast<long long>(seconds % 60),
+                               ui::humanBytes(global.bytes).c_str());
+        } else if (global.state == GlobalRecorder::State::Error) {
+            ImGui::SameLine();
+            ImGui::TextColored(theme::kFailed, "Recording stopped");
+            ImGui::SetItemTooltip("%s", global.error.c_str());
+        }
+
+        ImGui::SameLine();
         if (ImGui::Button("Reconnect all")) {
             app.startStreams();
         }

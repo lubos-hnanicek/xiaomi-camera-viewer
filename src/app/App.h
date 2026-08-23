@@ -13,6 +13,7 @@
 #include "cloud/Miot.h"
 #include "config/Config.h"
 #include "media/AudioPlayer.h"
+#include "media/GlobalRecorder.h"
 #include "media/StreamWorker.h"
 #include "render/D3D11Context.h"
 #include "render/VideoFrameTexture.h"
@@ -115,7 +116,7 @@ public:
     void removeCamera(size_t index);
 
     void startStreams();
-    void stopStreams();
+    void stopStreams(bool preserveGlobalRecording = false);
     void restartStream(CameraStream& stream);
 
     // Records the camera's own stream to a Matroska file, or stops doing so.
@@ -123,6 +124,14 @@ public:
     // what the camera sent.
     void toggleRecording(CameraStream& stream);
     [[nodiscard]] bool recording(const CameraStream& stream) const;
+    void toggleGlobalRecording();
+    void stopGlobalRecording();
+    [[nodiscard]] GlobalRecorder::Status globalRecordingStatus() const {
+        return globalRecorder_.status();
+    }
+    [[nodiscard]] bool globalRecordingActive() const { return globalRecorder_.active(); }
+    [[nodiscard]] bool globalRecordingAvailable() const;
+    [[nodiscard]] bool globallyRecording(const CameraStream& stream) const;
     void openRecordingsFolder() const;
 
     // Plays this camera through the speakers, and stops any other camera that
@@ -200,6 +209,9 @@ private:
     void applyLoginResult(const Json& response);
     void setCaptcha(const std::string& base64Png);
     void restoreSession();
+    void attachGlobalRecorder(CameraStream& stream);
+    void detachGlobalRecorders();
+    [[nodiscard]] static std::string globalVideoId(const CameraConfig& camera);
 
     HWND window_ = nullptr;
     D3D11Context gpu_;
@@ -228,6 +240,7 @@ private:
     // Declared before the streams so it outlives them: a worker feeding it must
     // be gone before the player it feeds is.
     AudioPlayer audio_;
+    GlobalRecorder globalRecorder_;
 
     std::vector<std::unique_ptr<CameraStream>> streams_;
     std::vector<DiscoveredDevice> devices_;

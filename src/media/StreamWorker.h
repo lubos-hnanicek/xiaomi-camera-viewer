@@ -14,6 +14,7 @@
 #include "config/Config.h"
 #include "media/AudioDecoder.h"
 #include "media/AudioPlayer.h"
+#include "media/GlobalRecorder.h"
 #include "media/Recorder.h"
 #include "media/VideoDecoder.h"
 #include "render/VideoFrameTexture.h"
@@ -106,6 +107,11 @@ public:
         return recordRequested_.load(std::memory_order_acquire);
     }
 
+    // Attaches this logical live view to an app-level multi-track recording.
+    // The recorder outlives every worker; detach only stops future submissions.
+    void attachGlobalRecorder(GlobalRecorder* recorder, std::string videoId, bool audioOwner);
+    void detachGlobalRecorder();
+
     // Sends this camera's audio to `speaker` until muted. The player is shared
     // between all cameras and only one may hold it, which the app enforces by
     // muting the previous camera before handing it over.
@@ -138,6 +144,8 @@ private:
     // Keeps the recorder in step with what the UI asked for, and writes this
     // access unit if a file is open. Called for every video frame.
     void serviceRecording(const uint8_t* data, const XmbFrame& meta);
+    void serviceGlobalRecording(const uint8_t* data, const XmbFrame& meta);
+    void notifyGlobalSessionEnded();
     // Ends a recording that cannot be continued, and says why on the tile.
     void abandonRecording(const std::string& error);
     void finishRecording();
@@ -175,10 +183,10 @@ private:
     std::chrono::steady_clock::time_point ptzHeldUntil_{};
 
     // The audio format seen this session. The recorder needs it before it can
-    // write a header, so it is remembered from the first audio frame rather
-    // than asked for when a recording starts. Reader thread only.
-    int audioCodec_ = 0;
-    int audioRate_ = 0;
+    // write a header, so it is remembered from the first audio frame. Atomic
+    // because attaching a global recorder reads it from the UI thread.
+    std::atomic<int> audioCodec_{0};
+    std::atomic<int> audioRate_{0};
 
     // Where decoded audio goes, or null when this camera is not the audible
     // one. Set from the UI thread and read by the reader thread, which is the
@@ -192,6 +200,14 @@ private:
     std::mutex recordMutex_;
     std::filesystem::path recordDirectory_;
     Recorder recorder_;
+
+    // Unlike the per-camera recorder, the global recorder is fed by several
+    // reader threads. These fields are only an attachment; the recorder copies
+    // packets into its own single-writer queue.
+    std::mutex globalRecordMutex_;
+    GlobalRecorder* globalRecorder_ = nullptr;
+    std::string globalVideoId_;
+    bool globalAudioOwner_ = false;
 };
 
 } // namespace xv

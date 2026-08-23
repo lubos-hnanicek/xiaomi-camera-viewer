@@ -3,24 +3,10 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
-#include <vector>
 
-struct AVFormatContext;
-struct AVPacket;
-struct AVStream;
+#include "media/MatroskaMuxer.h"
 
 namespace xv {
-
-// The audio the camera is sending, as a file has to describe it before it can
-// carry any. Default-constructed means a recording with no sound, which is what
-// a camera that sends none, or has been asked not to, gets.
-struct AudioTrack {
-    int codec = 0; // XMB_CODEC_*, zero for none
-    int sampleRate = 0;
-    int channels = 1;
-
-    [[nodiscard]] bool valid() const { return codec != 0 && sampleRate > 0; }
-};
 
 // Recorder writes the camera's own access units into a Matroska file.
 //
@@ -63,15 +49,15 @@ public:
     // two tracks share.
     bool writeAudio(const uint8_t* data, size_t size, int64_t ptsMs, std::string& error);
 
-    [[nodiscard]] bool hasAudio() const { return audio_ != nullptr; }
+    [[nodiscard]] bool hasAudio() const { return hasAudio_; }
 
     // Finishes the file. Safe to call when nothing is open, which is what makes
     // it usable from every teardown path.
     void close();
 
-    [[nodiscard]] bool recording() const { return format_ != nullptr; }
-    [[nodiscard]] const std::filesystem::path& path() const { return path_; }
-    [[nodiscard]] uint64_t bytesWritten() const { return bytes_; }
+    [[nodiscard]] bool recording() const { return muxer_.open(); }
+    [[nodiscard]] const std::filesystem::path& path() const { return muxer_.path(); }
+    [[nodiscard]] uint64_t bytesWritten() const { return muxer_.bytesWritten(); }
 
     // How much footage is in the file, from the camera's own timestamps rather
     // than the clock, so it measures what was recorded and not how long the
@@ -79,17 +65,8 @@ public:
     [[nodiscard]] int64_t durationMs() const { return lastPts_ < 0 ? 0 : lastPts_; }
 
 private:
-    bool addAudioTrack(const AudioTrack& audio, std::string& error);
-    bool writePacket(AVStream* stream, const uint8_t* data, size_t size, int64_t pts,
-                     bool keyframe, std::string& error);
-
-    AVFormatContext* format_ = nullptr;
-    AVStream* stream_ = nullptr;
-    AVStream* audio_ = nullptr;
-    AVPacket* packet_ = nullptr;
-
-    std::filesystem::path path_;
-    uint64_t bytes_ = 0;
+    MatroskaMuxer muxer_;
+    bool hasAudio_ = false;
 
     // Timestamps arrive as the camera's own clock, which starts wherever it
     // happens to be, so the file is rebased on its first frame. Both tracks are

@@ -18,6 +18,9 @@
 
 .PARAMETER Seconds
     How long to record.
+
+.PARAMETER Global
+    Uses Shift+R and verifies every video/audio track in the single global MKV.
 #>
 [CmdletBinding()]
 param(
@@ -26,7 +29,13 @@ param(
     # Time given to sign in from the saved token and get a first frame.
     [int]$WarmupSeconds = 16,
 
-    [string]$Out = "$env:TEMP\xiaomi-recording"
+    [string]$Out = "$env:TEMP\xiaomi-recording",
+
+    [switch]$Global,
+
+    [int]$ExpectedVideoTracks = 0,
+
+    [int]$ExpectedAudioTracks = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -137,15 +146,17 @@ Write-Host '==> listening with A'
 [System.Windows.Forms.SendKeys]::SendWait('a')
 Start-Sleep -Seconds 2
 
-Write-Host '==> starting the recording with R'
-[System.Windows.Forms.SendKeys]::SendWait('r')
+$recordKey = if ($Global) { '+r' } else { 'r' }
+$recordLabel = if ($Global) { 'Shift+R' } else { 'R' }
+Write-Host "==> starting the recording with $recordLabel"
+[System.Windows.Forms.SendKeys]::SendWait($recordKey)
 Start-Sleep -Seconds ([Math]::Min(6, $Seconds))
 Save-Shot "$Out-live.png"
 
 Start-Sleep -Seconds ([Math]::Max(0, $Seconds - 6))
 
-Write-Host '==> stopping the recording with R'
-[System.Windows.Forms.SendKeys]::SendWait('r')
+Write-Host "==> stopping the recording with $recordLabel"
+[System.Windows.Forms.SendKeys]::SendWait($recordKey)
 Start-Sleep -Seconds 3
 
 Write-Host '==> closing the app'
@@ -159,6 +170,9 @@ Get-Process XiaomiViewer -ErrorAction SilentlyContinue | ForEach-Object { $_.Kil
 $after = Get-ChildItem $recordings -Filter *.mkv
 $new = $after | Where-Object { $before.Name -notcontains $_.Name }
 if (-not $new) { throw "No recording appeared in $recordings" }
+if ($Global -and @($new).Count -ne 1) {
+    throw "Global recording should create one MKV, but $(@($new).Count) appeared."
+}
 
 $failed = $false
 
@@ -168,6 +182,71 @@ foreach ($file in $new) {
     & $ffprobe -hide_banner -v error -show_entries `
         'format=format_name,duration,bit_rate:stream=codec_type,codec_name,profile,width,height,avg_frame_rate,nb_frames,sample_rate,channels' `
         -of default=noprint_wrappers=1 $file.FullName
+
+    if ($Global) {
+        $probeText = (& $ffprobe -hide_banner -v error `
+                -show_entries 'stream=index,codec_type,codec_name:stream_tags=title' `
+                -of json $file.FullName) -join "`n"
+        $probe = $probeText | ConvertFrom-Json
+        $videoStreams = @($probe.streams | Where-Object { $_.codec_type -eq 'video' })
+        $audioStreams = @($probe.streams | Where-Object { $_.codec_type -eq 'audio' })
+
+        $wantedVideo = if ($ExpectedVideoTracks -gt 0) { $ExpectedVideoTracks } else { 1 }
+        if (($ExpectedVideoTracks -gt 0 -and $videoStreams.Count -ne $wantedVideo) -or
+            ($ExpectedVideoTracks -eq 0 -and $videoStreams.Count -lt $wantedVideo)) {
+            Write-Host "expected $wantedVideo video track(s), found $($videoStreams.Count)" `
+                -ForegroundColor Red
+            $failed = $true
+        }
+        if (($ExpectedAudioTracks -gt 0 -and $audioStreams.Count -ne $ExpectedAudioTracks) -or
+            ($ExpectedAudioTracks -eq 0 -and $audioStreams.Count -lt 1)) {
+            $wantedAudio = if ($ExpectedAudioTracks -gt 0) { $ExpectedAudioTracks } else { 'at least 1' }
+            Write-Host "expected $wantedAudio audio track(s), found $($audioStreams.Count)" `
+                -ForegroundColor Red
+            $failed = $true
+        }
+
+        $allStreams = @($videoStreams) + @($audioStreams)
+        foreach ($stream in $allStreams) {
+            $title = "$($stream.tags.title)"
+            if ([string]::IsNullOrWhiteSpace($title)) {
+                Write-Host "stream $($stream.index) has no track title" -ForegroundColor Red
+                $failed = $true
+            } else {
+                Write-Host "stream $($stream.index): $title ($($stream.codec_name))" `
+                    -ForegroundColor Green
+            }
+
+            Write-Host "--- decoding stream $($stream.index) ---"
+            Invoke-FFmpeg -v warning -i $file.FullName -map "0:$($stream.index)" -f null - |
+                ForEach-Object { Write-Host $_ }
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "stream $($stream.index) did not decode" -ForegroundColor Red
+                $failed = $true
+            }
+        }
+
+        foreach ($stream in $audioStreams) {
+            Write-Host "--- measuring audio stream $($stream.index) ---"
+            $levels = Invoke-FFmpeg -v info -i $file.FullName -map "0:$($stream.index)" `
+                -af volumedetect -f null -
+            $peak = @($levels | Select-String -Pattern 'max_volume: (-?[\d.]+) dB')
+            if ($peak.Count -eq 0) {
+                Write-Host "audio stream $($stream.index) could not be measured" -ForegroundColor Red
+                $failed = $true
+                continue
+            }
+            $db = [double]$peak[0].Matches[0].Groups[1].Value
+            if ($db -le -90.0) {
+                Write-Host "audio stream $($stream.index) is silent (peak $db dB)" `
+                    -ForegroundColor Red
+                $failed = $true
+            } else {
+                Write-Host "audio stream $($stream.index) peaks at $db dB" -ForegroundColor Green
+            }
+        }
+        continue
+    }
 
     # Decoding every frame is the only proof that the remux produced a stream a
     # player can actually follow: a file can be well-formed and still not decode.

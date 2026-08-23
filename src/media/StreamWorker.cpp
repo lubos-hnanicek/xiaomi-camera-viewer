@@ -184,8 +184,8 @@ bool StreamWorker::session(D3D11Context& gpu) {
 
     // A new session may negotiate a different format, and a recording started
     // in it must describe what this session sends rather than the last one.
-    audioCodec_ = 0;
-    audioRate_ = 0;
+    audioCodec_.store(0, std::memory_order_release);
+    audioRate_.store(0, std::memory_order_release);
     {
         std::scoped_lock lock(statusMutex_);
         status_.audio.clear();
@@ -241,6 +241,7 @@ bool StreamWorker::session(D3D11Context& gpu) {
 
         // Recording takes the camera's bytes, not the decoder's picture, so it
         // happens before the decode and is unaffected by it.
+        serviceGlobalRecording(buffer.data(), meta);
         serviceRecording(buffer.data(), meta);
 
         decoder.decode(buffer.data(), meta.size, meta.pts_ms,
@@ -254,12 +255,13 @@ bool StreamWorker::session(D3D11Context& gpu) {
 
     // Worth saying out loud: a camera that carried video but no audio after
     // being asked for both is the case where listening silently does nothing.
-    if (camera_.audio && audioCodec_ == 0 && sawVideo) {
+    if (camera_.audio && audioCodec_.load(std::memory_order_acquire) == 0 && sawVideo) {
         XV_WARN("{}: no audio arrived, although the session asked for it", camera_.label());
     }
 
     // A file is finished with the session that filled it, so a reconnect starts
     // a new one rather than splicing two different sessions into one timeline.
+    notifyGlobalSessionEnded();
     finishRecording();
 
     // Retire the handle before closing so a PTZ command in flight cannot follow
@@ -420,10 +422,31 @@ void StreamWorker::stopRecording() {
     recordRequested_.store(false, std::memory_order_release);
 }
 
+void StreamWorker::attachGlobalRecorder(GlobalRecorder* recorder, std::string videoId,
+                                        bool audioOwner) {
+    std::scoped_lock lock(globalRecordMutex_);
+    globalRecorder_ = recorder;
+    globalVideoId_ = std::move(videoId);
+    globalAudioOwner_ = audioOwner;
+    if (globalRecorder_ != nullptr && globalAudioOwner_) {
+        globalRecorder_->declareAudioFormat(
+            camera_.did, audioCodec_.load(std::memory_order_acquire),
+            audioRate_.load(std::memory_order_acquire));
+    }
+}
+
+void StreamWorker::detachGlobalRecorder() {
+    std::scoped_lock lock(globalRecordMutex_);
+    globalRecorder_ = nullptr;
+    globalVideoId_.clear();
+    globalAudioOwner_ = false;
+}
+
 void StreamWorker::serviceAudio(const uint8_t* data, const XmbFrame& meta) {
-    if (meta.codec != audioCodec_ || meta.sample_rate != audioRate_) {
-        audioCodec_ = meta.codec;
-        audioRate_ = meta.sample_rate;
+    if (meta.codec != audioCodec_.load(std::memory_order_acquire) ||
+        meta.sample_rate != audioRate_.load(std::memory_order_acquire)) {
+        audioCodec_.store(meta.codec, std::memory_order_release);
+        audioRate_.store(meta.sample_rate, std::memory_order_release);
 
         // Logged because until this line existed nobody knew what these
         // cameras actually send, and a model that sends something else is
@@ -440,6 +463,14 @@ void StreamWorker::serviceAudio(const uint8_t* data, const XmbFrame& meta) {
         // A format that changed under a decoder that is already running is not
         // something the decoder can be told about, so it is reopened.
         audioDecoder_.close();
+    }
+
+    {
+        std::scoped_lock lock(globalRecordMutex_);
+        if (globalRecorder_ != nullptr && globalAudioOwner_) {
+            globalRecorder_->submitAudio(camera_.did, data, meta.size, meta.codec, meta.sample_rate,
+                                         meta.pts_ms);
+        }
     }
 
     if (recorder_.recording()) {
@@ -512,7 +543,8 @@ void StreamWorker::serviceRecording(const uint8_t* data, const XmbFrame& meta) {
         // Whatever this session has been carrying. A camera that has sent no
         // audio by now gets a file with no audio track, which is the honest
         // description of what there is to record.
-        const AudioTrack audio{audioCodec_, audioRate_, 1};
+        const AudioTrack audio{audioCodec_.load(std::memory_order_acquire),
+                               audioRate_.load(std::memory_order_acquire), 1};
 
         std::string error;
         if (!recorder_.open(directory / recordingFileName(), meta.codec, width, height, data,
@@ -534,6 +566,29 @@ void StreamWorker::serviceRecording(const uint8_t* data, const XmbFrame& meta) {
     }
 
     publishRecordingStatus();
+}
+
+void StreamWorker::serviceGlobalRecording(const uint8_t* data, const XmbFrame& meta) {
+    int width = 0;
+    int height = 0;
+    {
+        std::scoped_lock lock(statusMutex_);
+        width = status_.width;
+        height = status_.height;
+    }
+
+    std::scoped_lock lock(globalRecordMutex_);
+    if (globalRecorder_ != nullptr) {
+        globalRecorder_->submitVideo(globalVideoId_, data, meta.size, meta.codec, width, height,
+                                     meta.pts_ms, meta.keyframe != 0);
+    }
+}
+
+void StreamWorker::notifyGlobalSessionEnded() {
+    std::scoped_lock lock(globalRecordMutex_);
+    if (globalRecorder_ != nullptr) {
+        globalRecorder_->sessionEnded(globalVideoId_);
+    }
 }
 
 void StreamWorker::abandonRecording(const std::string& error) {

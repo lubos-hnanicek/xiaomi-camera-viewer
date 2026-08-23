@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <unordered_map>
 
 #include "app/Frameless.h"
 #include "app/Log.h"
@@ -738,6 +739,10 @@ void App::handleGlobalKeys() {
     if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S)) {
         config_.save();
     }
+    if (screen_ == Screen::Grid && !ImGui::GetIO().WantTextInput &&
+        ImGui::IsKeyChordPressed(ImGuiMod_Shift | ImGuiKey_R)) {
+        toggleGlobalRecording();
+    }
 }
 
 void App::drawMenuBar() {
@@ -793,6 +798,21 @@ void App::drawMenuBar() {
                                   "changes to the camera list.");
             if (ImGui::MenuItem("Stop all")) {
                 stopStreams();
+            }
+
+            ImGui::Separator();
+
+            const GlobalRecorder::Status global = globalRecorder_.status();
+            const bool globalBusy = globalRecorder_.active();
+            if (ImGui::MenuItem(globalBusy ? "Stop global recording" : "Record all live cameras",
+                                "Shift+R", false,
+                                globalBusy || globalRecordingAvailable())) {
+                toggleGlobalRecording();
+            }
+            ImGui::SetItemTooltip("Writes one video track per currently live view and one audio "
+                                  "track per physical camera into a single Matroska file.");
+            if (global.state == GlobalRecorder::State::Error) {
+                ImGui::TextColored(theme::kFailed, "Global recording: %s", global.error.c_str());
             }
 
             ImGui::Separator();
@@ -875,10 +895,20 @@ void App::drawMenuBar() {
                 ++live;
             }
         }
-        const std::string summary = std::format("{} of {} live", live, streams_.size());
+        std::string summary = std::format("{} of {} live", live, streams_.size());
+        const GlobalRecorder::Status global = globalRecorder_.status();
+        if (global.state == GlobalRecorder::State::Preparing) {
+            summary += std::format("  |  preparing {}/{}", global.prepared, global.participants);
+        } else if (global.state == GlobalRecorder::State::Recording) {
+            const int64_t seconds = global.durationMs / 1000;
+            summary += std::format("  |  ALL REC {}:{:02}", seconds / 60, seconds % 60);
+        }
         const float width = ImGui::CalcTextSize(summary.c_str()).x;
         ImGui::SameLine(ImGui::GetWindowWidth() - captionWidth - width - 16.0f);
-        ImGui::TextColored(live > 0 ? theme::kLive : theme::kMuted, "%s", summary.c_str());
+        ImGui::TextColored(global.state == GlobalRecorder::State::Recording
+                               ? theme::kFailed
+                               : live > 0 ? theme::kLive : theme::kMuted,
+                           "%s", summary.c_str());
     }
 
     drawCaptionButtons(dragFrom);
@@ -1181,6 +1211,7 @@ void App::addCamera(const DiscoveredDevice& device, const std::string& channel) 
     if (camera.enabled) {
         stream->worker->start(gpu_, camera, config_.account);
     }
+    attachGlobalRecorder(*stream);
     streams_.push_back(std::move(stream));
 }
 
@@ -1214,7 +1245,7 @@ void App::removeCamera(size_t index) {
 void App::startStreams() {
     // Rebuild the worker list from configuration so this doubles as the
     // "apply changes" path.
-    stopStreams();
+    stopStreams(true);
     streams_.clear();
 
     for (const auto& camera : config_.cameras) {
@@ -1225,6 +1256,7 @@ void App::startStreams() {
         if (camera.enabled) {
             stream->worker->start(gpu_, camera, config_.account);
         }
+        attachGlobalRecorder(*stream);
         streams_.push_back(std::move(stream));
     }
 
@@ -1233,7 +1265,10 @@ void App::startStreams() {
     }
 }
 
-void App::stopStreams() {
+void App::stopStreams(bool preserveGlobalRecording) {
+    if (!preserveGlobalRecording) {
+        stopGlobalRecording();
+    }
     muteAll();
     for (auto& stream : streams_) {
         if (stream->worker) {
@@ -1268,6 +1303,112 @@ void App::toggleRecording(CameraStream& stream) {
 
 bool App::recording(const CameraStream& stream) const {
     return stream.worker && stream.worker->recordingRequested();
+}
+
+void App::toggleGlobalRecording() {
+    if (globalRecorder_.active()) {
+        stopGlobalRecording();
+        return;
+    }
+
+    detachGlobalRecorders();
+
+    std::vector<CameraStream*> live;
+    live.reserve(streams_.size());
+    for (const auto& stream : streams_) {
+        if (stream->worker && stream->worker->status().state == StreamState::Streaming) {
+            live.push_back(stream.get());
+        }
+    }
+    if (live.empty()) {
+        XV_WARN("global recording was requested with no live cameras");
+        return;
+    }
+
+    // One logical lens owns each physical camera's microphone. Prefer the
+    // primary lens when it is in the snapshot, otherwise use the live lens.
+    std::unordered_map<std::string, CameraStream*> audioOwners;
+    for (CameraStream* stream : live) {
+        if (!stream->config.audio) {
+            continue;
+        }
+        const bool primary = stream->config.channel.empty() || stream->config.channel == "0";
+        auto [found, inserted] = audioOwners.emplace(stream->config.did, stream);
+        if (!inserted && primary) {
+            found->second = stream;
+        }
+    }
+
+    std::vector<GlobalRecorder::Participant> participants;
+    participants.reserve(live.size());
+    for (CameraStream* stream : live) {
+        std::string physicalTitle = stream->config.name;
+        if (physicalTitle.empty()) {
+            physicalTitle = stream->config.model;
+        }
+        if (physicalTitle.empty()) {
+            physicalTitle = stream->config.did;
+        }
+
+        participants.push_back(GlobalRecorder::Participant{
+            .videoId = globalVideoId(stream->config),
+            .sourceId = stream->config.did,
+            .videoTitle = stream->config.label(),
+            .audioTitle = physicalTitle,
+            .audioOwner = audioOwners.contains(stream->config.did) &&
+                          audioOwners.at(stream->config.did) == stream,
+        });
+    }
+
+    std::string error;
+    if (!globalRecorder_.start(config_.recordingsDirectory(), std::move(participants), error)) {
+        XV_ERROR("cannot start global recording: {}", error);
+        return;
+    }
+
+    for (CameraStream* stream : live) {
+        attachGlobalRecorder(*stream);
+    }
+}
+
+void App::stopGlobalRecording() {
+    detachGlobalRecorders();
+    globalRecorder_.stop();
+}
+
+bool App::globalRecordingAvailable() const {
+    return std::any_of(streams_.begin(), streams_.end(), [](const auto& stream) {
+        return stream->worker && stream->worker->status().state == StreamState::Streaming;
+    });
+}
+
+bool App::globallyRecording(const CameraStream& stream) const {
+    return globalRecorder_.participates(globalVideoId(stream.config));
+}
+
+void App::attachGlobalRecorder(CameraStream& stream) {
+    if (!stream.worker) {
+        return;
+    }
+    const std::string videoId = globalVideoId(stream.config);
+    if (!globalRecorder_.participates(videoId)) {
+        stream.worker->detachGlobalRecorder();
+        return;
+    }
+    stream.worker->attachGlobalRecorder(&globalRecorder_, videoId,
+                                        globalRecorder_.audioOwner(videoId));
+}
+
+void App::detachGlobalRecorders() {
+    for (auto& stream : streams_) {
+        if (stream->worker) {
+            stream->worker->detachGlobalRecorder();
+        }
+    }
+}
+
+std::string App::globalVideoId(const CameraConfig& camera) {
+    return camera.did + '\x1f' + camera.channel;
 }
 
 void App::toggleListening(CameraStream& stream) {

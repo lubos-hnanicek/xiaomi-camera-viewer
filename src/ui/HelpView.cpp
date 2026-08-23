@@ -110,6 +110,7 @@ void drawControls() {
         Binding{"F", "Show only the selected camera, and go back"},
         Binding{"Esc", "Leave the single-camera view"},
         Binding{"R", "Start or stop recording the selected camera"},
+        Binding{"Shift+R", "Start or stop one multi-track recording of all currently live views"},
         Binding{"A", "Listen to the selected camera, or mute it"},
     };
     bindings("##gridkeys", kGridKeys);
@@ -181,12 +182,21 @@ void drawRecordingAndSound() {
     paragraph("Nothing is re-encoded: the camera's own video and audio packets go into the "
               "container as they arrive. A recording is therefore exactly what the camera sent, at "
               "its own quality, and it costs a few percent of one core rather than a GPU encoder.");
+    paragraph("Record all live, or Shift+R, creates one Matroska file with a selectable video track "
+              "for every view that is live when the button is pressed. A dual-lens camera contributes "
+              "two video tracks but only one copy of its microphone audio. Players normally show one "
+              "video and audio track at a time; this is not a mosaic or a mixed soundtrack.");
+    paragraph("That track list is fixed by the Matroska header. A camera that becomes live later "
+              "waits for the next global recording, while a snapshotted camera keeps its tracks "
+              "through reconnect gaps. If a camera had not delivered audio before the header was "
+              "written, its entry is video-only.");
 
     paragraph("Three things follow from recording the stream rather than a re-encode of it:");
     bullet("A file can only begin on a keyframe, so recording starts a second or two after being "
            "asked. The pad says starting until it does.");
-    bullet("A session that drops ends its file, and the reconnection opens a new one, because two "
-           "sessions do not share a timeline.");
+    bullet("A selected-camera recording ends its file on a dropped session and opens another after "
+           "reconnection. A global recording instead keeps the fixed track and leaves a real-time "
+           "gap.");
     bullet("The audio track has to be declared when the file is created, so a recording started "
            "before the camera's first audio packet arrives is video only.");
     ImGui::Dummy(ImVec2(0, 8));

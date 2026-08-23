@@ -54,6 +54,9 @@ jobs:
       - name: Build
         run: .\scripts\build.ps1 -Configuration RelWithDebInfo -Jobs 4
 
+      - name: Native recording tests
+        run: ctest --test-dir build/msvc -C RelWithDebInfo --output-on-failure
+
       - name: Bridge tests
         run: go test ./...
         working-directory: bridge

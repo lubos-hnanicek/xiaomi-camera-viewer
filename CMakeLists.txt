@@ -126,6 +126,8 @@ add_executable(XiaomiViewer WIN32
     src/media/AudioDecoder.cpp
     src/media/AudioFormat.cpp
     src/media/AudioPlayer.cpp
+    src/media/GlobalRecorder.cpp
+    src/media/MatroskaMuxer.cpp
     src/media/Recorder.cpp
     src/media/StreamWorker.cpp
     src/media/VideoDecoder.cpp
@@ -203,3 +205,16 @@ add_custom_target(stage_runtime ALL
     COMMENT "Staging runtime dependencies")
 
 add_dependencies(stage_runtime XiaomiViewer)
+
+# --- Hardware-independent tests --------------------------------------------
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(recording_timeline_tests
+        tests/RecordingTimelineTests.cpp)
+    target_include_directories(recording_timeline_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    if(MSVC)
+        target_compile_options(recording_timeline_tests PRIVATE /W4 /permissive- /utf-8)
+    endif()
+    add_test(NAME recording_timeline COMMAND recording_timeline_tests)
+endif()
