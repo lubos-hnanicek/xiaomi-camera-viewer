@@ -7,6 +7,7 @@
 #include "render/D3D11Context.h"
 
 struct AVBufferRef;
+struct AVCodecParameters;
 struct AVCodecContext;
 struct AVFrame;
 struct AVPacket;
@@ -33,6 +34,8 @@ public:
 
     // `codecId` is one of the XMB_CODEC_* video constants.
     bool open(D3D11Context& gpu, int codecId, std::string& error);
+    // Opens from a demuxed file track, including its codec-private data.
+    bool open(D3D11Context& gpu, const AVCodecParameters* parameters, std::string& error);
     void close();
 
     [[nodiscard]] bool isOpen() const { return codec_ != nullptr; }
@@ -41,6 +44,7 @@ public:
     // Feeds one Annex-B access unit. Returns false only on a fatal decoder
     // error; a frame that merely fails to produce output is not an error.
     bool decode(const uint8_t* data, size_t size, int64_t ptsMs, const FrameCallback& onFrame);
+    bool decode(const AVPacket* packet, const FrameCallback& onFrame);
 
     // Discards decoder state, for use after a reconnect.
     void flush();
@@ -48,6 +52,9 @@ public:
     [[nodiscard]] uint64_t framesDecoded() const { return framesDecoded_; }
 
 private:
+    bool open(D3D11Context& gpu, int ffmpegCodecId, int publicCodecId,
+              const AVCodecParameters* parameters, std::string& error);
+    bool send(const AVPacket* packet, const FrameCallback& onFrame);
     bool drain(const FrameCallback& onFrame);
 
     AVCodecContext* codec_ = nullptr;

@@ -24,6 +24,7 @@
 #include "bridge/Bridge.h"
 #include "ui/Views.h"
 #include "util/Encoding.h"
+#include "util/FileDialog.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
@@ -625,6 +626,7 @@ int App::run(HINSTANCE instance, int showCommand) {
     }
 
     XV_INFO("shutting down");
+    playback_.close();
     stopStreams();
     audio_.stop();
     // Read before the window goes anywhere, and saved along with everything else.
@@ -648,7 +650,7 @@ void App::frame() {
     // the camera by activating a button, so it stands down while the grid is up.
     // Every other screen is a form, where tabbing between fields is the point.
     ImGuiIO& io = ImGui::GetIO();
-    if (screen_ == Screen::Grid) {
+    if (screen_ == Screen::Grid || screen_ == Screen::Playback) {
         io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
     } else {
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
@@ -680,6 +682,7 @@ void App::frame() {
     case Screen::Cameras: drawCamerasView(*this); break;
     case Screen::Grid: drawGridView(*this); break;
     case Screen::Settings: drawSettingsView(*this); break;
+    case Screen::Playback: drawPlaybackView(*this); break;
     }
 
     ImGui::End();
@@ -739,6 +742,9 @@ void App::handleGlobalKeys() {
     if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S)) {
         config_.save();
     }
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_O)) {
+        openRecordingDialog();
+    }
     if (screen_ == Screen::Grid && !ImGui::GetIO().WantTextInput &&
         ImGui::IsKeyChordPressed(ImGuiMod_Shift | ImGuiKey_R)) {
         toggleGlobalRecording();
@@ -758,6 +764,10 @@ void App::drawMenuBar() {
     }
 
     if (ImGui::BeginMenu("File")) {
+        if (ImGui::MenuItem("Open recording...", "Ctrl+O")) {
+            openRecordingDialog();
+        }
+        ImGui::Separator();
         if (ImGui::MenuItem("Save configuration", "Ctrl+S")) {
             config_.save();
         }
@@ -775,20 +785,33 @@ void App::drawMenuBar() {
     if (signedIn_) {
         if (ImGui::BeginMenu("View")) {
             if (ImGui::MenuItem("Live grid", nullptr, screen_ == Screen::Grid)) {
+                if (screen_ == Screen::Playback) {
+                    closePlayback();
+                }
                 screen_ = Screen::Grid;
             }
             if (ImGui::MenuItem("Cameras", nullptr, screen_ == Screen::Cameras)) {
+                if (screen_ == Screen::Playback) {
+                    closePlayback();
+                }
                 screen_ = Screen::Cameras;
             }
             if (ImGui::MenuItem("Settings", nullptr, screen_ == Screen::Settings)) {
+                if (screen_ == Screen::Playback) {
+                    closePlayback();
+                }
                 screen_ = Screen::Settings;
+            }
+            if (ImGui::MenuItem("Playback", nullptr, screen_ == Screen::Playback,
+                                playback_.status().open || !playbackError_.empty())) {
+                screen_ = Screen::Playback;
             }
             ImGui::Separator();
             ImGui::MenuItem("Log", nullptr, &showLogWindow_);
             ImGui::EndMenu();
         }
 
-        if (ImGui::BeginMenu("Streams")) {
+        if (ImGui::BeginMenu("Streams", screen_ != Screen::Playback)) {
             // "Restart", because it rebuilds the tiles from the camera list and
             // reconnects whatever is already running along with whatever is not.
             if (ImGui::MenuItem("Restart all")) {
@@ -963,17 +986,22 @@ void App::pumpTasks() {
             config_.account.userId = account.value("user_id", config_.account.userId);
             config_.account.token = account.value("token", config_.account.token);
             config_.save();
-            screen_ = config_.cameras.empty() ? Screen::Cameras : Screen::Grid;
             XV_INFO("restored the saved session for {}", config_.account.userId);
+            const bool keepPlayback = playbackSuspendedLive_;
+            if (!keepPlayback) {
+                screen_ = config_.cameras.empty() ? Screen::Cameras : Screen::Grid;
+            }
             if (config_.cameras.empty()) {
                 refreshDevices();
-            } else {
+            } else if (!keepPlayback) {
                 startStreams();
             }
         } else {
             XV_WARN("saved session could not be restored: {}", responseError(*result));
             login_.error = "Your saved sign-in has expired. Please sign in again.";
-            screen_ = Screen::Login;
+            if (!playbackSuspendedLive_) {
+                screen_ = Screen::Login;
+            }
         }
         login_.busy = false;
     }
@@ -1130,10 +1158,13 @@ void App::applyLoginResult(const Json& response) {
 
     XV_INFO("signed in as {}", config_.account.userId);
 
-    screen_ = config_.cameras.empty() ? Screen::Cameras : Screen::Grid;
+    const bool keepPlayback = playbackSuspendedLive_;
+    if (!keepPlayback) {
+        screen_ = config_.cameras.empty() ? Screen::Cameras : Screen::Grid;
+    }
     if (config_.cameras.empty()) {
         refreshDevices();
-    } else {
+    } else if (!keepPlayback) {
         startStreams();
     }
 }
@@ -1152,6 +1183,7 @@ void App::setCaptcha(const std::string& base64Png) {
 }
 
 void App::signOut() {
+    closePlayback(false);
     stopStreams();
 
     const std::string userId = config_.account.userId;
@@ -1462,6 +1494,66 @@ void App::openRecordingsFolder() const {
     std::filesystem::create_directories(directory, ignored);
 
     ::ShellExecuteW(nullptr, L"open", directory.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
+void App::openRecordingDialog() {
+    const auto directory = config_.recordingsDirectory();
+    std::error_code ignored;
+    std::filesystem::create_directories(directory, ignored);
+
+    std::string error;
+    const auto selected = chooseRecordingFile(window_, directory, error);
+    if (!selected) {
+        if (!error.empty()) {
+            XV_ERROR("recording picker failed: {}", error);
+            ::MessageBoxA(window_, error.c_str(), "Could not open recording",
+                          MB_OK | MB_ICONERROR);
+        }
+        return;
+    }
+
+    bool recordingActive = globalRecorder_.active();
+    for (const auto& stream : streams_) {
+        recordingActive = recordingActive || (stream->worker && stream->worker->recordingRequested());
+    }
+    if (recordingActive &&
+        ::MessageBoxW(window_,
+                      L"Opening a recording stops the current recording and disconnects the live "
+                      L"streams. Continue?",
+                      L"Open recording", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES) {
+        return;
+    }
+
+    playback_.close();
+    if (!playbackSuspendedLive_) {
+        stopStreams();
+        playbackSuspendedLive_ = true;
+    }
+    playbackSelected_ = 0;
+    playbackFocused_ = false;
+    playbackError_.clear();
+
+    if (!playback_.open(*selected, gpu_, audio_, error)) {
+        playbackError_ = std::move(error);
+    }
+    screen_ = Screen::Playback;
+}
+
+void App::closePlayback(bool resumeLive) {
+    playback_.close();
+    playbackError_.clear();
+    playbackSelected_ = 0;
+    playbackFocused_ = false;
+
+    const bool shouldResume = playbackSuspendedLive_;
+    playbackSuspendedLive_ = false;
+    if (resumeLive && signedIn_ && shouldResume) {
+        startStreams();
+        screen_ = config_.cameras.empty() ? Screen::Cameras : Screen::Grid;
+    } else if (resumeLive) {
+        screen_ = signedIn_ ? (config_.cameras.empty() ? Screen::Cameras : Screen::Grid)
+                            : Screen::Login;
+    }
 }
 
 void App::loadSettingsFor(CameraStream& stream) {

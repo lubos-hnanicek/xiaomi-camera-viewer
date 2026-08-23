@@ -5,6 +5,7 @@
 #include <string>
 
 struct AVCodecContext;
+struct AVCodecParameters;
 struct AVFrame;
 struct AVPacket;
 
@@ -35,7 +36,9 @@ public:
     // `codec` is one of the XMB_CODEC_* audio constants and `sampleRate` is the
     // rate the camera declared, which the codec may override.
     bool open(int codec, int sampleRate, std::string& error);
+    bool open(const AVCodecParameters* parameters, std::string& error);
     void close();
+    void flush();
 
     [[nodiscard]] bool isOpen() const { return codec_ != nullptr; }
     [[nodiscard]] int codecId() const { return codecId_; }
@@ -44,8 +47,11 @@ public:
     // Feeds one packet. Returns false on a fatal decoder error; a packet that
     // produces no samples is not one.
     bool decode(const uint8_t* data, size_t size, const FrameCallback& onFrame);
+    bool decode(const AVPacket* packet, const FrameCallback& onFrame);
 
 private:
+    bool send(const AVPacket* packet, const FrameCallback& onFrame);
+    bool drain(const FrameCallback& onFrame);
     AVCodecContext* codec_ = nullptr;
     AVPacket* packet_ = nullptr;
     AVFrame* frame_ = nullptr;

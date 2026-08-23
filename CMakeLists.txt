@@ -128,6 +128,7 @@ add_executable(XiaomiViewer WIN32
     src/media/AudioPlayer.cpp
     src/media/GlobalRecorder.cpp
     src/media/MatroskaMuxer.cpp
+    src/media/RecordingPlayer.cpp
     src/media/Recorder.cpp
     src/media/StreamWorker.cpp
     src/media/VideoDecoder.cpp
@@ -137,9 +138,11 @@ add_executable(XiaomiViewer WIN32
     src/ui/GridView.cpp
     src/ui/HelpView.cpp
     src/ui/LoginView.cpp
+    src/ui/PlaybackView.cpp
     src/ui/PtzOverlay.cpp
     src/ui/SettingsView.cpp
     src/util/Encoding.cpp
+    src/util/FileDialog.cpp
     "${APP_MANIFEST}"
     src/app/app.rc)
 

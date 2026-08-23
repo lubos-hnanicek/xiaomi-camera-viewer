@@ -49,8 +49,6 @@ VideoDecoder::~VideoDecoder() {
 }
 
 bool VideoDecoder::open(D3D11Context& gpu, int codecId, std::string& error) {
-    close();
-
     AVCodecID ffmpegCodec = AV_CODEC_ID_NONE;
     switch (codecId) {
     case XMB_CODEC_H265: ffmpegCodec = AV_CODEC_ID_HEVC; break;
@@ -59,7 +57,26 @@ bool VideoDecoder::open(D3D11Context& gpu, int codecId, std::string& error) {
         error = std::format("unsupported video codec id {}", codecId);
         return false;
     }
+    return open(gpu, static_cast<int>(ffmpegCodec), codecId, nullptr, error);
+}
 
+bool VideoDecoder::open(D3D11Context& gpu, const AVCodecParameters* parameters,
+                        std::string& error) {
+    if (parameters == nullptr ||
+        (parameters->codec_id != AV_CODEC_ID_H264 && parameters->codec_id != AV_CODEC_ID_HEVC)) {
+        error = "the recording uses an unsupported video codec";
+        return false;
+    }
+    const int publicCodecId =
+        parameters->codec_id == AV_CODEC_ID_HEVC ? XMB_CODEC_H265 : XMB_CODEC_H264;
+    return open(gpu, static_cast<int>(parameters->codec_id), publicCodecId, parameters, error);
+}
+
+bool VideoDecoder::open(D3D11Context& gpu, int ffmpegCodecId, int publicCodecId,
+                        const AVCodecParameters* parameters, std::string& error) {
+    close();
+
+    const auto ffmpegCodec = static_cast<AVCodecID>(ffmpegCodecId);
     const AVCodec* codec = avcodec_find_decoder(ffmpegCodec);
     if (codec == nullptr) {
         error = "libavcodec has no decoder for this stream";
@@ -108,6 +125,14 @@ bool VideoDecoder::open(D3D11Context& gpu, int codecId, std::string& error) {
         return false;
     }
 
+    if (parameters != nullptr) {
+        if (const int rc = avcodec_parameters_to_context(codec_, parameters); rc < 0) {
+            error = std::format("could not read the video track parameters: {}", averror(rc));
+            close();
+            return false;
+        }
+    }
+
     codec_->hw_device_ctx = av_buffer_ref(hwDevice_);
     codec_->get_format = selectFormat;
     codec_->thread_count = 1; // the GPU does the work; extra threads only add latency
@@ -128,8 +153,9 @@ bool VideoDecoder::open(D3D11Context& gpu, int codecId, std::string& error) {
         return false;
     }
 
-    codecId_ = codecId;
-    XV_INFO("hardware decoder ready for {}", codecId == XMB_CODEC_H265 ? "H.265" : "H.264");
+    codecId_ = publicCodecId;
+    XV_INFO("hardware decoder ready for {}",
+            publicCodecId == XMB_CODEC_H265 ? "H.265" : "H.264");
     return true;
 }
 
@@ -169,12 +195,33 @@ bool VideoDecoder::decode(const uint8_t* data, size_t size, int64_t ptsMs, const
     packet_->pts = ptsMs;
     packet_->dts = ptsMs;
 
-    const int rc = avcodec_send_packet(codec_, packet_);
+    const bool accepted = send(packet_, onFrame);
 
     packet_->data = nullptr;
     packet_->size = 0;
+    return accepted;
+}
 
-    if (rc < 0 && rc != AVERROR(EAGAIN)) {
+bool VideoDecoder::decode(const AVPacket* packet, const FrameCallback& onFrame) {
+    if (codec_ == nullptr || packet == nullptr) {
+        return false;
+    }
+    return send(packet, onFrame);
+}
+
+bool VideoDecoder::send(const AVPacket* packet, const FrameCallback& onFrame) {
+    int rc = 0;
+    for (;;) {
+        rc = avcodec_send_packet(codec_, packet);
+        if (rc != AVERROR(EAGAIN)) {
+            break;
+        }
+        if (!drain(onFrame)) {
+            return false;
+        }
+    }
+
+    if (rc < 0) {
         // Corrupt or partial access units are common right after connecting,
         // before the first keyframe arrives, so this is not fatal on its own.
         if (rc == AVERROR_INVALIDDATA) {

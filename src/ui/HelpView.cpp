@@ -119,10 +119,22 @@ void drawControls() {
           "the tiles here rather than the toolbar. They stand down while a text field has the "
           "keyboard or a dropdown is open, and they do nothing on the other screens.");
 
+    ImGui::SeparatorText("Keyboard: recording playback");
+
+    static constexpr std::array kPlaybackKeys{
+        Binding{"Space", "Play or pause"},
+        Binding{"Left / Right", "Seek backward or forward five seconds"},
+        Binding{"Tab / Shift+Tab", "Select the next or previous video track"},
+        Binding{"F", "Focus the selected video track, and go back"},
+        Binding{"Esc", "Leave the focused-track view"},
+    };
+    bindings("##playbackkeys", kPlaybackKeys);
+
     ImGui::SeparatorText("Keyboard: anywhere");
 
     static constexpr std::array kGlobalKeys{
         Binding{"F1", "Open or close this help"},
+        Binding{"Ctrl+O", "Open a local MKV recording in the built-in player"},
         Binding{"Ctrl+S", "Save the configuration"},
         Binding{"Alt+F4", "Exit"},
         Binding{"Alt+Space", "The window menu Windows draws"},
@@ -133,12 +145,12 @@ void drawControls() {
     aside("On the login, Cameras and Settings screens, Tab and Shift+Tab move between the fields "
           "and Space or Enter presses whatever is focused.");
 
-    ImGui::SeparatorText("Mouse: the live grid");
+    ImGui::SeparatorText("Mouse: live grid and recording playback");
 
     static constexpr std::array kGridMouse{
-        Binding{"Left click a tile", "Select that camera"},
-        Binding{"Double-click a tile", "Show only that camera, and go back"},
-        Binding{"Hold the right button", "Magnify the live picture around the pointer"},
+        Binding{"Left click a tile", "Select that camera or recording track"},
+        Binding{"Double-click a tile", "Show only that camera or track, and go back"},
+        Binding{"Hold the right button", "Magnify the picture around the pointer"},
         Binding{"Move while holding it", "Pan around the magnified picture"},
         Binding{"Release the right button", "Back to the whole picture"},
     };
@@ -190,6 +202,9 @@ void drawRecordingAndSound() {
               "waits for the next global recording, while a snapshotted camera keeps its tracks "
               "through reconnect gaps. If a camera had not delivered audio before the header was "
               "written, its entry is video-only.");
+    paragraph("File -> Open recording opens the built-in player. It shows every video track in a "
+              "synchronised grid, can focus one track by double-clicking it, and plays one selected "
+              "camera microphone at a time. Returning to the live grid reconnects the cameras.");
 
     paragraph("Three things follow from recording the stream rather than a re-encode of it:");
     bullet("A file can only begin on a keyframe, so recording starts a second or two after being "

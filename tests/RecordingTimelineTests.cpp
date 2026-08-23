@@ -1,6 +1,7 @@
 #include <cassert>
 
 #include "media/GlobalRecorder.h"
+#include "media/RecordingPlayer.h"
 
 int main() {
     xv::RecordingTimeline timeline;
@@ -29,6 +30,10 @@ int main() {
     assert(xv::monotonicRecordingPts(100, 99) == 100);
     assert(xv::monotonicRecordingPts(99, 100) == 101);
     assert(xv::monotonicRecordingPts(100, 100) == 101);
+
+    assert(xv::clampPlaybackPosition(-1, 10'000) == 0);
+    assert(xv::clampPlaybackPosition(4'500, 10'000) == 4'500);
+    assert(xv::clampPlaybackPosition(12'000, 10'000) == 10'000);
 
     return 0;
 }

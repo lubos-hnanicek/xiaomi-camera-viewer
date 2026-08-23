@@ -90,6 +90,50 @@ bool AudioDecoder::open(int codec, int sampleRate, std::string& error) {
     return true;
 }
 
+bool AudioDecoder::open(const AVCodecParameters* parameters, std::string& error) {
+    close();
+
+    if (parameters == nullptr || parameters->codec_type != AVMEDIA_TYPE_AUDIO) {
+        error = "the recording has invalid audio track parameters";
+        return false;
+    }
+
+    const AVCodec* decoder = avcodec_find_decoder(parameters->codec_id);
+    if (decoder == nullptr) {
+        error = "this build has no decoder for the recording's audio track";
+        return false;
+    }
+
+    codec_ = avcodec_alloc_context3(decoder);
+    if (codec_ == nullptr) {
+        error = "out of memory";
+        return false;
+    }
+    if (const int rc = avcodec_parameters_to_context(codec_, parameters); rc < 0) {
+        error = std::format("could not read the audio track parameters: {}", averror(rc));
+        close();
+        return false;
+    }
+    if (const int rc = avcodec_open2(codec_, decoder, nullptr); rc < 0) {
+        error = std::format("could not start the recording's audio decoder: {}", averror(rc));
+        close();
+        return false;
+    }
+
+    packet_ = av_packet_alloc();
+    frame_ = av_frame_alloc();
+    if (packet_ == nullptr || frame_ == nullptr) {
+        error = "could not allocate decoder working buffers";
+        close();
+        return false;
+    }
+
+    codecId_ = static_cast<int>(parameters->codec_id);
+    sampleRate_ = codec_->sample_rate;
+    XV_INFO("recording audio decoder ready at {} Hz", sampleRate_);
+    return true;
+}
+
 void AudioDecoder::close() {
     if (frame_ != nullptr) {
         av_frame_free(&frame_);
@@ -104,6 +148,12 @@ void AudioDecoder::close() {
     sampleRate_ = 0;
 }
 
+void AudioDecoder::flush() {
+    if (codec_ != nullptr) {
+        avcodec_flush_buffers(codec_);
+    }
+}
+
 bool AudioDecoder::decode(const uint8_t* data, size_t size, const FrameCallback& onFrame) {
     if (codec_ == nullptr || data == nullptr || size == 0) {
         return codec_ != nullptr;
@@ -115,12 +165,33 @@ bool AudioDecoder::decode(const uint8_t* data, size_t size, const FrameCallback&
     packet_->data = const_cast<uint8_t*>(data);
     packet_->size = static_cast<int>(size);
 
-    const int rc = avcodec_send_packet(codec_, packet_);
+    const bool accepted = send(packet_, onFrame);
 
     packet_->data = nullptr;
     packet_->size = 0;
+    return accepted;
+}
 
-    if (rc < 0 && rc != AVERROR(EAGAIN)) {
+bool AudioDecoder::decode(const AVPacket* packet, const FrameCallback& onFrame) {
+    if (codec_ == nullptr || packet == nullptr) {
+        return false;
+    }
+    return send(packet, onFrame);
+}
+
+bool AudioDecoder::send(const AVPacket* packet, const FrameCallback& onFrame) {
+    int rc = 0;
+    for (;;) {
+        rc = avcodec_send_packet(codec_, packet);
+        if (rc != AVERROR(EAGAIN)) {
+            break;
+        }
+        if (!drain(onFrame)) {
+            return false;
+        }
+    }
+
+    if (rc < 0) {
         // A packet lost in transit leaves the next one looking corrupt. That is
         // a click in the audio, not a reason to stop listening.
         if (rc == AVERROR_INVALIDDATA) {
@@ -130,6 +201,10 @@ bool AudioDecoder::decode(const uint8_t* data, size_t size, const FrameCallback&
         return rc != AVERROR(EINVAL);
     }
 
+    return drain(onFrame);
+}
+
+bool AudioDecoder::drain(const FrameCallback& onFrame) {
     for (;;) {
         const int received = avcodec_receive_frame(codec_, frame_);
         if (received == AVERROR(EAGAIN) || received == AVERROR_EOF) {

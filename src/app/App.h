@@ -14,6 +14,7 @@
 #include "config/Config.h"
 #include "media/AudioPlayer.h"
 #include "media/GlobalRecorder.h"
+#include "media/RecordingPlayer.h"
 #include "media/StreamWorker.h"
 #include "render/D3D11Context.h"
 #include "render/VideoFrameTexture.h"
@@ -75,6 +76,7 @@ enum class Screen {
     Cameras,
     Grid,
     Settings,
+    Playback,
 };
 
 // A device discovered on the account, before it becomes a configured camera.
@@ -133,6 +135,15 @@ public:
     [[nodiscard]] bool globalRecordingAvailable() const;
     [[nodiscard]] bool globallyRecording(const CameraStream& stream) const;
     void openRecordingsFolder() const;
+
+    void openRecordingDialog();
+    void closePlayback(bool resumeLive = true);
+    RecordingPlayer& playback() { return playback_; }
+    [[nodiscard]] const std::string& playbackError() const { return playbackError_; }
+    int playbackSelected() const { return playbackSelected_; }
+    void setPlaybackSelected(int value) { playbackSelected_ = value; }
+    bool playbackFocused() const { return playbackFocused_; }
+    void setPlaybackFocused(bool value) { playbackFocused_ = value; }
 
     // Plays this camera through the speakers, and stops any other camera that
     // was playing. One at a time is the whole design: several cameras at once
@@ -241,6 +252,7 @@ private:
     // be gone before the player it feeds is.
     AudioPlayer audio_;
     GlobalRecorder globalRecorder_;
+    RecordingPlayer playback_;
 
     std::vector<std::unique_ptr<CameraStream>> streams_;
     std::vector<DiscoveredDevice> devices_;
@@ -249,6 +261,10 @@ private:
     bool fullscreenTile_ = false;
     bool showLogWindow_ = false;
     bool showHelpWindow_ = false;
+    int playbackSelected_ = 0;
+    bool playbackFocused_ = false;
+    bool playbackSuspendedLive_ = false;
+    std::string playbackError_;
     // The help page the menu asked for, or null to leave the window where it was.
     const char* helpTab_ = nullptr;
 };

@@ -22,6 +22,9 @@ void drawPtzOverlay(App& app, CameraStream& stream, float x, float y, float widt
 // Camera settings, driven by the MIoT property table.
 void drawSettingsView(App& app);
 
+// Local multi-track recording playback.
+void drawPlaybackView(App& app);
+
 // The pages of the help window, named so the Help menu can ask for one of them
 // by name rather than by an index that would drift as pages are added.
 inline constexpr const char* kHelpTabStart = "Getting started";

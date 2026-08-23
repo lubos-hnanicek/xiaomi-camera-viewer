@@ -22,6 +22,8 @@ The pictures in the tiles are stand-ins rather than real camera output.
 - Recording to Matroska (`.mkv`) files, picture and sound both remuxed rather
   than re-encoded, so a recording is the camera's own stream at its own quality
   and costs no CPU
+- Global recording into one synchronized multi-track MKV, plus a built-in player
+  that shows every video track in a grid and plays one selected microphone
 - Camera settings driven by the device's own MIoT specification: night vision,
   HDR, image flip, motion detection and sensitivity, tracking, fill light,
   siren, indicator LED, recording mode and SD card status
@@ -34,7 +36,8 @@ Out of scope for now: playback of recordings from the camera's SD card, and
 two-way audio. Talking back needs an encoder and the return channel worked out;
 listening does not, and is implemented.
 
-Playback is out of scope because the cameras will not discuss it, not because
+Camera SD-card playback is out of scope because the cameras will not discuss it,
+not because
 nobody has written the UI. MISS names a playback request, response and speed
 command (0x10D, 0x10E, 0x10F); no payload for any of them is documented, no
 public implementation sends one, and a CW400 and a CW500 answered fourteen
@@ -179,6 +182,17 @@ pixel-identical to what the camera sent, at whatever bitrate and frame rate it
 chose, and it costs a few percent of one core rather than a GPU encoder. Sound
 is recorded whether or not anyone is listening at the time, since it is the same
 packets either way.
+
+`Record all live`, or `Shift+R`, creates one synchronized MKV with one video
+track per live view and one audio track per physical camera. The track list is
+fixed when recording starts; reconnecting cameras keep their tracks and leave a
+real-time gap, while cameras that become live later wait for the next recording.
+
+**File -> Open recording**, or `Ctrl+O`, opens local MKV recordings in the
+built-in player. Every video track is shown in a synchronized grid; double-click
+a tile or press `F` to focus it. The audio menu plays one camera microphone at a
+time or mutes sound. `Space` pauses, the arrow keys seek five seconds, and
+returning to the live grid reconnects the cameras.
 
 Three consequences of recording the stream rather than a re-encode of it. A file
 can only begin on a keyframe, so recording starts within a second or two of
