@@ -42,7 +42,7 @@ $JsonSha256 = 'AAF127C04CB31C406E5B04A63F1AE89369FCCDE6D8FA7CDDA1ED4F32DFC5DE63'
 
 $FFmpegRelease = 'autobuild-2026-07-31-14-10'
 $FFmpegAsset = 'ffmpeg-n8.1.2-34-g9b6c8969e0-win64-lgpl-shared-8.1.zip'
-$FFmpegSha256 = '97E1AF03208A4582C26D5F3E670AB51AF50B8D5788DA78231AAE218A7C917D56'
+$FFmpegSha256 = 'C222A490DDE4E7059F45495DEEF6BFB98DBCACC2B43DF5B607546252037AA95C'
 $FFmpegUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/$FFmpegRelease/$FFmpegAsset"
 
 New-Item -ItemType Directory -Force -Path $ThirdParty | Out-Null
