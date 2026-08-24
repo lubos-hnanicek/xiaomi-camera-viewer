@@ -56,6 +56,11 @@ param(
     # the lookup wants that instant and not one the file merely covers.
     [long]$Epoch = 0,
 
+    # Which lens a playback request should carry, for the models that record two
+    # into one clip. The CW500 takes this as an array and merges or selects from
+    # it; the CW400 has no such field and wants this left empty.
+    [int[]]$Lenses = @(),
+
     # For the hour mode: how far apart to place the probes, and whether to read
     # the hour as UTC rather than in this machine's zone.
     [int]$StepMinutes = 1,
@@ -469,6 +474,15 @@ try {
                     speed            = 1
                     avchannelmerge   = 1
                 }
+
+                # A two-lens camera records both into one clip and picks between
+                # them here: its firmware refuses a channel that is not an array
+                # ("chn no array") and otherwise announces a default. The
+                # single-lens models never ask for it, so it is only sent when
+                # named -- and named is counted rather than tested for truth,
+                # since a one-element array holding 0 is false in PowerShell and
+                # asking for lens 0 would otherwise send no lens at all.
+                if ($Lenses.Count -gt 0) { $fields['channel'] = @($Lenses) }
                 $label = switch ($offset) {
                     0 { 'the clip start itself' }
                     32 { 'part way into the clip' }

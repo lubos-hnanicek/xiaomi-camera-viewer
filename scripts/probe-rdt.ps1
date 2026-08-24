@@ -50,12 +50,30 @@
 [CmdletBinding()]
 param(
     [ValidateSet('watch', 'channels', 'playback', 'open', 'one', 'isolate', 'discriminate',
-        'shortness', 'length', 'index', 'listen')]
+        'shortness', 'length', 'index', 'listen', 'ask')]
     [string]$Mode = 'watch',
 
     # For the index mode: the hour to ask for, as the camera names its
     # directories -- ten digits, YYYYMMDDHH.
     [string]$Hour = '',
+
+    # The whole request payload, when the hour alone is not the question. A
+    # dual-lens camera keeps two recordings per hour and the key that chooses
+    # between them is not known, so the payload has to be writable by hand.
+    # {0} is replaced by the hour.
+    [string]$IndexJson = '',
+
+    # For the ask mode: the hours to try, and the payload shapes to try them
+    # with. Every combination is asked, in one session, because the framing is
+    # already settled and only the payload is in question. {0} is the hour.
+    [string[]]$Hours = @(),
+    [string[]]$Payloads = @('{"time":"{0}"}'),
+
+    # The commands to try. The CW400's parser takes 1, 5, 6 and 11 and ignores
+    # everything else without a word, but that is one model's firmware and the
+    # CW500 answers 6 with an empty index, so its own set has to be found rather
+    # than assumed.
+    [int[]]$RdtCmds = @(),
 
     # Which RDT command to ask it with. The parser takes 1 for a recording, 5
     # for a snapshot, 6 for a record message and 11 for the event index, and
@@ -270,6 +288,16 @@ function Open-Session {
         if ($handle -ne [IntPtr]::Zero) {
             Write-Host "    stream open: $response" -ForegroundColor DarkGray
 
+            # An index is rebuilt from channel 1 as a byte stream, and UDP
+            # reorders and loses. The result is not a degraded reading but a
+            # meaningless one: the length prefix lands on the wrong bytes and
+            # every message after it is misframed. Better said out loud than
+            # mistaken for a camera with nothing to say.
+            if ($response -match 'cs2\+udp' -and $Mode -in @('index', 'ask', 'listen')) {
+                Write-Host "    WARNING: this session is UDP, so channel 1 cannot be reassembled" -ForegroundColor Red
+                Write-Host "             pass -Transport tcp; a scrambled stream reads as silence" -ForegroundColor Red
+            }
+
             # Anything said before the first candidate is not an answer to it,
             # so it goes. Except in listen mode, where it is the whole point:
             # the camera pushes its recording index on connect, unasked, and
@@ -415,6 +443,34 @@ function Try-Send([IntPtr]$handle, [int]$channel, [int]$cmd, [string]$body, [boo
         return 'media-stopped'
     }
     return 'alive'
+}
+
+# Sends one RDT request in the framing the index mode established -- command as
+# four little-endian bytes, then the payload length, then the payload, the whole
+# encrypted and written to channel 1 with no envelope id -- and waits out the
+# answer. Waiting has to outlast the camera's own thinking time: a full card
+# takes seconds to walk before the first message appears, so quiet at the start
+# means nothing and only quiet after it has begun speaking means it has finished.
+function Get-RdtReply([IntPtr]$handle, [int]$rdtCmd, [byte[]]$payload, [int]$minRounds = 4) {
+    # Every byte travels as a character in a JSON string, so none may be above
+    # 0x7f: the bridge encodes the body as UTF-8 and anything higher would
+    # arrive as two bytes and shift everything after it.
+    $raw = -join ($(
+        [BitConverter]::GetBytes([int]$payload.Length) | ForEach-Object { [char]$_ }
+        $payload | ForEach-Object { [char]$_ }
+    ))
+
+    Send-Channel $handle 1 ($rdtCmd * 16777216) $raw $true $false
+
+    $tap = @()
+    $quiet = 0
+    for ($round = 0; $round -lt 40 -and ($round -lt $minRounds -or $quiet -lt 3); $round++) {
+        Start-Sleep -Milliseconds ([Math]::Max($WaitMs, 1500))
+        $slice = Read-Answers $handle
+        if ($slice.Tap.Count -eq 0) { $quiet++ } else { $quiet = 0 }
+        $tap += $slice.Tap
+    }
+    return $tap
 }
 
 # The candidates the channels and isolate modes share, so that running them one
@@ -629,6 +685,80 @@ try {
         Write-Host ("==> full text in {0}" -f $path) -ForegroundColor DarkGray
     }
 
+    'ask' {
+        # One session, many questions. The framing is settled, so re-deriving it
+        # for every payload costs a session apiece and proves nothing; what is
+        # not settled is which hour the camera thinks it has, and on a two-lens
+        # camera, how it is asked for one lens rather than the other.
+        if ($Hours.Count -eq 0) {
+            $Hours = 0..5 | ForEach-Object { (Get-Date).AddHours(-$_).ToString('yyyyMMddHH') }
+        }
+        if ($RdtCmds.Count -eq 0) { $RdtCmds = @($RdtCmd) }
+
+        Write-Host ("==> {0} command(s) x {1} hour(s) x {2} payload(s), one session" -f
+            $RdtCmds.Count, $Hours.Count, $Payloads.Count) -ForegroundColor Cyan
+
+        $dump = Join-Path (Split-Path -Parent $PSScriptRoot) 'build\rdt'
+        New-Item -ItemType Directory -Force -Path $dump | Out-Null
+        $path = Join-Path $dump ("ask-cmd{0}-{1}.txt" -f $RdtCmd, (Get-Date -Format 'yyyyMMdd-HHmmss'))
+
+        foreach ($askCmd in $RdtCmds) {
+            foreach ($hour in $Hours) {
+                foreach ($shape in $Payloads) {
+                    $json = $shape -replace '\{0\}', $hour
+
+                    # Not every request is JSON. The CW500 reads the channel for
+                    # its recording index as four raw bytes at offset 8 of the
+                    # payload, so that payload has to be writable as bytes.
+                    $payload = if ($json -like 'hex:*') {
+                        $digits = $json.Substring(4)
+                        [byte[]]@(0..($digits.Length / 2 - 1) | ForEach-Object {
+                            [Convert]::ToByte($digits.Substring($_ * 2, 2), 16)
+                        })
+                    } else {
+                        [System.Text.Encoding]::ASCII.GetBytes($json)
+                    }
+
+                    $health = Get-Health $handle
+                    if ($health.Error) {
+                        Write-Host "    session is gone, opening another" -ForegroundColor DarkYellow
+                        [XmRdt]::Close($handle)
+                        Start-Sleep -Milliseconds $SettleMs
+                        $handle = Open-Session
+                    }
+
+                    $tap = Get-RdtReply $handle $askCmd $payload
+
+                    ("=== cmd {0} {1}" -f $askCmd, $json) | Add-Content -Path $path
+                    $tap | Add-Content -Path $path
+
+                    # One line per question: what was asked and the size of what
+                    # came back. A non-zero size is the whole finding; the bytes
+                    # themselves are in the file.
+                    # An index runs to hundreds of messages, so listing them one
+                    # per line buries the answer. What matters per question is
+                    # how many came back and how much they carried.
+                    $count = 0
+                    $bytes = 0
+                    foreach ($msg in $tap) {
+                        if ($msg -match 'rdt message, cmd (\d+), (\d+) bytes') {
+                            $count++
+                            $bytes += [int]$Matches[2]
+                        }
+                    }
+
+                    $verdict = if ($count -eq 0) { 'silence' }
+                        else { "{0} message(s), {1} bytes" -f $count, $bytes }
+
+                    $colour = if ($bytes -gt 0) { 'Green' } else { 'DarkGray' }
+                    Write-Host ("  cmd {0,-3} {1,-42} {2}" -f $askCmd, $json, $verdict) -ForegroundColor $colour
+                }
+            }
+        }
+
+        Write-Host ("==> full text in {0}" -f $path) -ForegroundColor DarkGray
+    }
+
     'index' {
         # What the firmware says an RDT message is: a four byte command, a four
         # byte payload length, then the payload. Command 11 asks for a recording
@@ -646,7 +776,8 @@ try {
         if (-not $Hour) { $Hour = (Get-Date).AddHours(-2).ToString('yyyyMMddHH') }
         Write-Host "==> asking channel $Channel, command $RdtCmd, for hour $Hour" -ForegroundColor Cyan
 
-        $json = '{"time":"' + $Hour + '"}'
+        $json = if ($IndexJson) { $IndexJson -replace '\{0\}', $Hour } else { '{"time":"' + $Hour + '"}' }
+        Write-Host ("    payload: {0}" -f $json) -ForegroundColor DarkGray
         $length = $json.Length
 
         # A four byte integer, written both ways round. Cmd rides in the same
@@ -741,6 +872,14 @@ try {
                 [XmRdt]::Close($handle)
                 Start-Sleep -Milliseconds $SettleMs
                 $handle = Open-Session
+            }
+
+            # The list exists to find the framing, and the framing is found the
+            # moment one candidate draws a reply on the RDT channel. Sending the
+            # malformed rest afterwards costs a minute and teaches nothing.
+            if ($answers.Tap.Count -gt 0) {
+                Write-Host "      that framing works, so the remaining candidates are skipped" -ForegroundColor DarkGray
+                break
             }
         }
     }

@@ -481,17 +481,30 @@ func (s *Session) drainRDT() []string {
 			continue
 		}
 
-		// The payload is text for the index replies and binary for the file
-		// ones, so it is offered both ways and the reader takes what suits.
 		body := s.rdtPayload[:s.rdtWant]
-		out = append(out, fmt.Sprintf("rdt message, cmd %d, %d bytes\n  text: %s\n  hex:  %x",
-			s.rdtCmd, len(body),
-			strings.ToValidUTF8(strings.Map(printable, string(body)), "."), body))
+		out = append(out, fmt.Sprintf("rdt message, cmd %d, %d bytes%s", s.rdtCmd, len(body),
+			describeRDT(body)))
+
+		// Bytes past the declared end are not spare. Either the length was read
+		// from the wrong place or the chunk carries more than one message, and
+		// dropping the tail hides both: a camera that answered at length then
+		// reads as a camera that answered with nothing.
+		if extra := s.rdtPayload[s.rdtWant:]; len(extra) > 0 {
+			out = append(out, fmt.Sprintf("rdt: %d bytes past the declared end%s",
+				len(extra), describeRDT(extra)))
+		}
 
 		s.rdtCmd, s.rdtWant, s.rdtPayload = 0, 0, nil
 	}
 
 	return out
+}
+
+// describeRDT renders a payload both ways, because the index replies are text
+// and the file ones are binary and which is which is not known in advance.
+func describeRDT(body []byte) string {
+	return fmt.Sprintf("\n  text: %s\n  hex:  %x",
+		strings.ToValidUTF8(strings.Map(printable, string(body)), "."), body)
 }
 
 // printable keeps text readable when a payload turns out to be binary.
