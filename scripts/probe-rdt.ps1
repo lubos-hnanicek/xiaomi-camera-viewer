@@ -50,8 +50,22 @@
 [CmdletBinding()]
 param(
     [ValidateSet('watch', 'channels', 'playback', 'open', 'one', 'isolate', 'discriminate',
-        'shortness', 'length')]
+        'shortness', 'length', 'index', 'listen')]
     [string]$Mode = 'watch',
+
+    # For the index mode: the hour to ask for, as the camera names its
+    # directories -- ten digits, YYYYMMDDHH.
+    [string]$Hour = '',
+
+    # Which RDT command to ask it with. The parser takes 1 for a recording, 5
+    # for a snapshot, 6 for a record message and 11 for the event index, and
+    # ignores everything else without a word. 11 is the one known to answer;
+    # 6 is the candidate for continuous footage, which the event index does not
+    # cover.
+    [int]$RdtCmd = 11,
+
+    # Print what the bridge actually returned, not what this script made of it.
+    [switch]$Trace,
 
     # For the one mode. Cmd is written as four big-endian bytes ahead of Body,
     # which is how a MISS command is framed and also a way to place an arbitrary
@@ -175,8 +189,16 @@ public static class XmRdt
     public static string Command(IntPtr handle, string request)
     {
         CommandFn fn = (CommandFn)Marshal.GetDelegateForFunctionPointer(Proc("xmb_stream_command"), typeof(CommandFn));
-        byte[] buffer = new byte[262144];
+
+        // Big enough that it never has to ask twice. Reading the camera's
+        // replies empties them, so a call that answers "too small" has already
+        // consumed what it declined to hand over, and calling again returns
+        // nothing at all. That is not a hypothetical: it is what made a
+        // hundred and ninety messages of recording index look like silence.
+        byte[] buffer = new byte[16 * 1024 * 1024];
         int needed = fn(handle, request, buffer, buffer.Length);
+        if (needed > buffer.Length)
+            throw new Exception("stream command wanted " + needed + " bytes, which it has already discarded");
         if (needed < 0) throw new Exception("stream command failed with code " + needed);
         return Encoding.UTF8.GetString(buffer, 0, needed);
     }
@@ -248,8 +270,13 @@ function Open-Session {
         if ($handle -ne [IntPtr]::Zero) {
             Write-Host "    stream open: $response" -ForegroundColor DarkGray
 
-            # Anything said before the first candidate is not an answer to it.
-            [XmRdt]::Command($handle, '{"method":"replies"}') | Out-Null
+            # Anything said before the first candidate is not an answer to it,
+            # so it goes. Except in listen mode, where it is the whole point:
+            # the camera pushes its recording index on connect, unasked, and
+            # this drain is what threw it away every time it was sent.
+            if ($Mode -ne 'listen') {
+                [XmRdt]::Command($handle, '{"method":"replies"}') | Out-Null
+            }
             return $handle
         }
 
@@ -261,13 +288,15 @@ function Open-Session {
     }
 }
 
-function Send-Channel([IntPtr]$handle, [int]$channel, [int]$cmd, [string]$body, [bool]$encrypt) {
+function Send-Channel([IntPtr]$handle, [int]$channel, [int]$cmd, [string]$body, [bool]$encrypt,
+    [bool]$envelope = $true) {
     $req = @{
-        method  = 'miss.channel'
-        channel = $channel
-        cmd     = $cmd
-        body    = $body
-        encrypt = $encrypt
+        method   = 'miss.channel'
+        channel  = $channel
+        cmd      = $cmd
+        body     = $body
+        encrypt  = $encrypt
+        envelope = $envelope
     } | ConvertTo-Json -Compress
     try {
         [XmRdt]::Command($handle, $req) | Out-Null
@@ -280,9 +309,33 @@ function Send-Channel([IntPtr]$handle, [int]$channel, [int]$cmd, [string]$body, 
 # anywhere else. Both drain on read, so they have to be read together or one
 # call would swallow what the other was about to report.
 function Read-Answers([IntPtr]$handle) {
-    $r = [XmRdt]::Command($handle, '{"method":"replies"}') | ConvertFrom-Json
-    if (-not $r.ok) { return @{ Replies = @(); Tap = @() } }
-    return @{ Replies = @($r.replies); Tap = @($r.tap) }
+    $raw = ''
+    try {
+        $raw = [XmRdt]::Command($handle, '{"method":"replies"}')
+    } catch {
+        # Not nothing: a read that throws and is treated as silence is how a
+        # camera answering at length comes to look like a camera saying nothing.
+        Write-Host ("      read failed: {0}" -f $_.Exception.Message) -ForegroundColor Red
+        return @{ Replies = @(); Tap = @() }
+    }
+
+    if ($Trace) {
+        Write-Host ("      raw answer: {0} chars, {1}" -f $raw.Length,
+            $raw.Substring(0, [Math]::Min(160, $raw.Length))) -ForegroundColor DarkGray
+    }
+
+    $r = $raw | ConvertFrom-Json
+    if (-not $r.ok) {
+        Write-Host ("      read refused: {0}" -f $raw.Substring(0, [Math]::Min(300, $raw.Length))) -ForegroundColor Red
+        return @{ Replies = @(); Tap = @() }
+    }
+
+    # An absent list wrapped in @() is a list holding one nothing, which reads
+    # as an answer and prints as a blank line.
+    $replies = if ($null -eq $r.replies) { @() } else { @($r.replies) }
+    $tap = if ($null -eq $r.tap) { @() } else { @($r.tap) }
+    $counts = if ($null -eq $r.unhandled) { @() } else { @($r.unhandled) }
+    return @{ Replies = $replies; Tap = $tap; Unhandled = $counts }
 }
 
 # Frames and the session's own verdict on itself. A camera that hangs up stops
@@ -542,6 +595,152 @@ try {
                 foreach ($msg in $answers.Tap) {
                     Write-Host ("  {0,2}. elsewhere:       {1}" -f $i, $msg) -ForegroundColor Yellow
                 }
+            }
+        }
+    }
+
+    'listen' {
+        # Ask nothing and keep everything. The camera sends its recording index
+        # on connect without being asked, and every earlier run threw it away
+        # in the first quarter second of the session.
+        Write-Host "==> saying nothing, keeping whatever the camera sends" -ForegroundColor Cyan
+
+        $dump = Join-Path (Split-Path -Parent $PSScriptRoot) 'build\rdt'
+        New-Item -ItemType Directory -Force -Path $dump | Out-Null
+        $path = Join-Path $dump ("listen-{0}.txt" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
+
+        $quiet = 0
+        for ($round = 0; $round -lt 30 -and ($round -lt 6 -or $quiet -lt 3); $round++) {
+            Start-Sleep -Milliseconds ([Math]::Max($WaitMs, 1000))
+            $slice = Read-Answers $handle
+            if ($slice.Tap.Count -eq 0 -and $slice.Replies.Count -eq 0) { $quiet++; continue }
+            $quiet = 0
+
+            $slice.Tap | Add-Content -Path $path
+            foreach ($msg in $slice.Tap) {
+                foreach ($line in ($msg -split "`n")) {
+                    if ($line -match '^\s*hex:') { continue }
+                    $trimmed = $line.Trim()
+                    if ($trimmed.Length -gt 260) { $trimmed = $trimmed.Substring(0, 260) + ' ...' }
+                    Write-Host ("  {0}" -f $trimmed) -ForegroundColor Green
+                }
+            }
+        }
+        Write-Host ("==> full text in {0}" -f $path) -ForegroundColor DarkGray
+    }
+
+    'index' {
+        # What the firmware says an RDT message is: a four byte command, a four
+        # byte payload length, then the payload. Command 11 asks for a recording
+        # index and its payload is JSON with a time in it, which the camera finds
+        # by searching for "time", stepping over the seven characters of
+        # time":" and reading digits until the closing quote. Ten digits name an
+        # hour, and an hour is what Mi Home makes you pick before it shows you
+        # clips.
+        #
+        # The camera's own sender, cs2_rdt_send, writes channel 1 with the
+        # session's encryption and no envelope id in front, unlike the command
+        # channel. What it does not settle is which way round the two integers
+        # go, so that is asked both ways; the plaintext readings are kept as a
+        # control.
+        if (-not $Hour) { $Hour = (Get-Date).AddHours(-2).ToString('yyyyMMddHH') }
+        Write-Host "==> asking channel $Channel, command $RdtCmd, for hour $Hour" -ForegroundColor Cyan
+
+        $json = '{"time":"' + $Hour + '"}'
+        $length = $json.Length
+
+        # A four byte integer, written both ways round. Cmd rides in the same
+        # place a MISS command id would, so it is already big-endian on the wire;
+        # the little-endian reading of 11 is the same bytes reversed.
+        $cmdBig = $RdtCmd
+        $cmdLittle = $RdtCmd * 16777216
+
+        function New-Payload([int]$value, [bool]$bigEndian) {
+            $bytes = [BitConverter]::GetBytes([int]$value)
+            if ($bigEndian) { [array]::Reverse($bytes) }
+            return (($bytes | ForEach-Object { '\u{0:x4}' -f $_ }) -join '')
+        }
+
+        # The bridge takes the body as a JSON string, so the length bytes travel
+        # as escapes and the JSON that follows is plain text.
+        $candidates = @(
+            @{ Name = 'little-endian, as the camera sends'; Cmd = $cmdLittle; Big = $false; Encrypt = $true;  Envelope = $false }
+            @{ Name = 'big-endian, as the camera sends';    Cmd = $cmdBig;    Big = $true;  Encrypt = $true;  Envelope = $false }
+            @{ Name = 'little-endian, plaintext';           Cmd = $cmdLittle; Big = $false; Encrypt = $false; Envelope = $false }
+            @{ Name = 'little-endian, with envelope';       Cmd = $cmdLittle; Big = $false; Encrypt = $true;  Envelope = $true }
+        )
+
+        foreach ($candidate in $candidates) {
+            $escaped = New-Payload $length $candidate.Big
+            $body = ($escaped -replace '\\u00([0-9a-f]{2})', '\u00$1')
+
+            # Rebuild the body as a real string: the escapes above are what the
+            # bridge's JSON decoder turns back into the four length bytes.
+            $raw = -join ($(
+                $bytes = [BitConverter]::GetBytes([int]$length)
+                if ($candidate.Big) { [array]::Reverse($bytes) }
+                $bytes | ForEach-Object { [char]$_ }
+            )) + $json
+
+            $before = Get-Health $handle
+            Send-Channel $handle $Channel $candidate.Cmd $raw $candidate.Encrypt $candidate.Envelope
+
+            # A record index runs to hundreds of messages, so one read is not
+            # the answer -- it is the first slice of it. Keep reading until the
+            # camera goes quiet twice over.
+            # Listening has to outlast the camera's own thinking time. A full
+            # card takes seconds to walk before the first message appears, so
+            # quiet at the start means nothing yet; only quiet after it has
+            # begun speaking means it has finished.
+            $replies = @()
+            $tap = @()
+            $quiet = 0
+            for ($round = 0; $round -lt 30 -and ($round -lt 8 -or $quiet -lt 3); $round++) {
+                Start-Sleep -Milliseconds ([Math]::Max($WaitMs, 2000))
+                $slice = Read-Answers $handle
+                if ($slice.Unhandled.Count -gt 1) {
+                    Write-Host ("      round {0,2}: channel 1 has seen {1}, this read carried {2}" -f
+                        $round, $slice.Unhandled[1], $slice.Tap.Count) -ForegroundColor DarkGray
+                }
+                if ($slice.Replies.Count -eq 0 -and $slice.Tap.Count -eq 0) { $quiet++ } else { $quiet = 0 }
+                $replies += $slice.Replies
+                $tap += $slice.Tap
+            }
+            $answers = @{ Replies = $replies; Tap = $tap }
+            $after = Get-Health $handle
+
+            Write-Host ("  {0,-28} cmd=0x{1:x8} len={2}" -f $candidate.Name, $candidate.Cmd, $length) -ForegroundColor Gray
+            if ($answers.Replies.Count -eq 0 -and $answers.Tap.Count -eq 0) {
+                Write-Host ("      nothing, frames +{0} {1}" -f ($after.Frames - $before.Frames), $after.Error) -ForegroundColor DarkGray
+            } else {
+                foreach ($reply in $answers.Replies) {
+                    Write-Host ("      command channel: {0}" -f $reply) -ForegroundColor Green
+                }
+                # A whole index is far too much to read on a terminal, so the
+                # bulk goes to a file and only what identifies each message is
+                # printed. The hex is what a later reader will want.
+                $dump = Join-Path (Split-Path -Parent $PSScriptRoot) 'build\rdt'
+                New-Item -ItemType Directory -Force -Path $dump | Out-Null
+                $path = Join-Path $dump ("rdt-{0}-cmd{1}-{2}.txt" -f $Hour, $RdtCmd,
+                    (Get-Date -Format 'HHmmss'))
+                $answers.Tap | Set-Content -Path $path
+
+                foreach ($msg in $answers.Tap) {
+                    foreach ($line in ($msg -split "`n")) {
+                        if ($line -match '^\s*hex:') { continue }
+                        $trimmed = $line.Trim()
+                        if ($trimmed.Length -gt 300) { $trimmed = $trimmed.Substring(0, 300) + ' ...' }
+                        Write-Host ("      {0}" -f $trimmed) -ForegroundColor Green
+                    }
+                }
+                Write-Host ("      full text written to {0}" -f $path) -ForegroundColor DarkGray
+            }
+
+            if ($after.Error) {
+                Write-Host "      session is gone, opening another" -ForegroundColor DarkYellow
+                [XmRdt]::Close($handle)
+                Start-Sleep -Milliseconds $SettleMs
+                $handle = Open-Session
             }
         }
     }

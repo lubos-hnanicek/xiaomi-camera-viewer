@@ -163,6 +163,21 @@ type MiotProp struct {
 	Value any    `json:"value,omitempty"`
 }
 
+// Raw performs an arbitrary signed call against the account's regional IoT API
+// and returns the decrypted result.
+//
+// The named calls above are the endpoints this app needs. Xiaomi has many more,
+// none of them documented, and reaching one means signing a request the same way
+// a named call does. Firmware lookup is the reason it exists: the OTA image a
+// camera would install is the only published artifact containing the camera's
+// own side of the protocol.
+func (a *Account) Raw(apiURL, params string) (json.RawMessage, error) {
+	if params == "" {
+		params = "{}"
+	}
+	return a.request(apiURL, params)
+}
+
 func (a *Account) MiotGet(did string, props []MiotProp) (json.RawMessage, error) {
 	for i := range props {
 		props[i].Did = did

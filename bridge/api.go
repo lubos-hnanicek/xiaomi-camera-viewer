@@ -99,6 +99,8 @@ func handleCall(method string, request []byte) []byte {
 		return handleMiotSet(request)
 	case "miot.action":
 		return handleMiotAction(request)
+	case "cloud.raw":
+		return handleCloudRaw(request)
 	default:
 		return errString("bridge: unknown method %q", method)
 	}
@@ -295,6 +297,34 @@ func parseMiot(request []byte) (*cloud.Account, *miotRequest, error) {
 		return nil, nil, err
 	}
 	return acc, &req, nil
+}
+
+// handleCloudRaw signs an arbitrary IoT API call. The escape hatch for the
+// cloud, matching miss.raw for the camera: most of Xiaomi's endpoints are
+// undocumented, and the only way to learn what one answers is to call it.
+func handleCloudRaw(request []byte) []byte {
+	var req struct {
+		UserID string `json:"user_id"`
+		Path   string `json:"path"`
+		Params string `json:"params"`
+	}
+	if err := json.Unmarshal(request, &req); err != nil {
+		return errResponse(err)
+	}
+	if req.Path == "" {
+		return errString("bridge: path is required")
+	}
+
+	acc, err := registry.Get(req.UserID)
+	if err != nil {
+		return errResponse(err)
+	}
+
+	res, err := acc.Raw(req.Path, req.Params)
+	if err != nil {
+		return errResponse(err)
+	}
+	return okResponse(map[string]any{"result": json.RawMessage(res)})
 }
 
 func handleMiotGet(request []byte) []byte {
@@ -506,6 +536,7 @@ func handleStreamCommand(s *stream.Session, request []byte) []byte {
 		Cmd       uint32 `json:"cmd"`
 		Channel   byte   `json:"channel"`
 		Encrypt   *bool  `json:"encrypt"`
+		Envelope  *bool  `json:"envelope"`
 	}
 	if err := json.Unmarshal(request, &req); err != nil {
 		return errResponse(err)
@@ -547,7 +578,11 @@ func handleStreamCommand(s *stream.Session, request []byte) []byte {
 	// as it is on the command channel. See scripts/probe-rdt.ps1.
 	case "miss.channel":
 		encrypt := req.Encrypt == nil || *req.Encrypt
-		if err := s.RawChannel(req.Channel, req.Cmd, req.Body, encrypt); err != nil {
+		// The command channel's envelope is the default because that is what
+		// this bridge speaks everywhere else, but the RDT channel does without
+		// one, so a probe has to be able to say so.
+		envelope := req.Envelope == nil || *req.Envelope
+		if err := s.RawChannel(req.Channel, req.Cmd, req.Body, encrypt, envelope); err != nil {
 			return errResponse(err)
 		}
 		return okResponse(nil)

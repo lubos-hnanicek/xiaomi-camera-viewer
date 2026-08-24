@@ -4,19 +4,29 @@
 
 .DESCRIPTION
     MISS names a playback command pair (0x10D request, 0x10E response) and a
-    playback speed command (0x10F), but no payload for any of them is documented
-    and no implementation is public: go2rtc declares two of the three constants
-    and sends none of them, and Xiaomi's plugin SDK lists the names with the
-    doc comments shifted by one and no schema at all.
+    playback speed command (0x10F), and for a long time no payload for any of
+    them was documented anywhere: go2rtc declares two of the three constants and
+    sends none of them, and Xiaomi's plugin SDK lists the names with the doc
+    comments shifted by one and no schema at all.
 
-    So the shape has to be found the way the motor payload was: send candidates
-    to a live camera and read what comes back. Every mode here is a question:
+    The shape is now known, and it did not come from guessing. IMILAB publishes
+    camera firmware openly, those cameras are built from the same ipc_sdk as
+    these, and the request parser is in the clear in the image. It reads
+    sessionid, starttime, endtime, autoswitchtolive, offset, speed and
+    avchannelmerge, and -- this is the part that matters -- when any one of them
+    is missing it logs to a console nobody can read and returns without
+    answering. That is why the guessing never worked and could never have
+    worked: a malformed request and an unsupported command are the same silence.
+
+    Every mode here is a question:
 
       status   is there a card, is it recording, how full is it
       devinfo  what the camera says about itself (0x110), which is the one
-               undocumented command whose reply we can already read
-      probe    what 0x10D answers to each candidate payload
-      speed    what 0x10F answers, only worth running once probe finds a shape
+               undocumented command whose reply we could already read
+      play     what 0x10D answers to the request the firmware asks for
+      probe    the earlier experiment, kept because it is the evidence for the
+               paragraph above: fourteen guesses, fourteen silences
+      speed    what 0x10F answers, worth running once play works
 
     Nothing here writes to the camera's configuration or its card, and no
     candidate asks for a delete or a format.
@@ -26,8 +36,30 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('status', 'devinfo', 'probe', 'speed', 'idle', 'one')]
+    [ValidateSet('status', 'devinfo', 'play', 'at', 'hour', 'sweep', 'probe', 'speed', 'idle', 'one')]
     [string]$Mode = 'status',
+
+    # For the play mode: which stretch of the card to ask for. The default looks
+    # an hour back, far enough that a recording has been closed and indexed but
+    # near enough that a card recording on motion is likely to hold something.
+    [int]$AgoMinutes = 60,
+    [int]$WindowMinutes = 10,
+
+    # For the at mode: an instant Mi Home's timeline shows a recording for,
+    # written the way you read it off the phone -- '2026-08-24 19:35'. Which
+    # clock the camera keys its index on is the open question, so this is asked
+    # several ways at once and the camera picks.
+    [string]$At,
+
+    # A clip's exact start, in seconds, as the recording index gives it. This is
+    # not the same question as -At: the index names when a file was opened, and
+    # the lookup wants that instant and not one the file merely covers.
+    [long]$Epoch = 0,
+
+    # For the hour mode: how far apart to place the probes, and whether to read
+    # the hour as UTC rather than in this machine's zone.
+    [int]$StepMinutes = 1,
+    [switch]$AsUtc,
 
     # For the one mode: the command and body to send, and how many times. A
     # candidate that only answers sometimes has not been understood yet, so the
@@ -136,8 +168,13 @@ public static class XmPlay
     public static string Command(IntPtr handle, string request)
     {
         CommandFn fn = (CommandFn)Marshal.GetDelegateForFunctionPointer(Proc("xmb_stream_command"), typeof(CommandFn));
-        byte[] buffer = new byte[262144];
+        // Big enough that it never has to ask twice: reading the camera's
+        // replies empties them, so a call that answers "too small" has already
+        // consumed what it declined to hand over.
+        byte[] buffer = new byte[16 * 1024 * 1024];
         int needed = fn(handle, request, buffer, buffer.Length);
+        if (needed > buffer.Length)
+            throw new Exception("stream command wanted " + needed + " bytes, which it has already discarded");
         if (needed < 0) throw new Exception("stream command failed with code " + needed);
         return Encoding.UTF8.GetString(buffer, 0, needed);
     }
@@ -242,18 +279,54 @@ $open = @{
 } | ConvertTo-Json -Compress
 
 $response = ''
-$handle = [XmPlay]::Open($open, [ref]$response)
-if ($handle -eq [IntPtr]::Zero) { throw "stream open failed: $response" }
+$script:handle = [XmPlay]::Open($open, [ref]$response)
+if ($script:handle -eq [IntPtr]::Zero) { throw "stream open failed: $response" }
 Write-Host "    stream open: $response" -ForegroundColor DarkGray
 
 try {
     # Anything the camera said before the first candidate is not an answer to it.
-    [XmPlay]::Command($handle, '{"method":"replies"}') | Out-Null
+    [XmPlay]::Command($script:handle, '{"method":"replies"}') | Out-Null
+
+    # A camera stops sending live video the moment it is asked for playback, and
+    # the bridge, seeing a media path that has gone quiet, times the session out
+    # a few seconds later. That is fine for one question and fatal for a walk:
+    # everything after the timeout measures a dead session rather than a
+    # candidate. So a long walk trades sessions in as it goes.
+    #
+    # It is not enough to open one. A session that is not carrying video answers
+    # filenotfound to instants the card demonstrably holds -- that is what made
+    # an hour of continuous recording look empty and sent this whole
+    # investigation after a phantom. So a session is only asked a question once
+    # it has been seen to stream.
+    function Wait-Healthy([int]$seconds = 10) {
+        for ($i = 0; $i -lt $seconds; $i++) {
+            $before = Get-Frames
+            Start-Sleep -Seconds 1
+            if ((Get-Frames) -gt $before) { return $true }
+        }
+        return $false
+    }
+
+    function Reset-Session {
+        try { [XmPlay]::Close($script:handle) } catch { }
+        Start-Sleep -Milliseconds 1500
+
+        $reopened = ''
+        $script:handle = [XmPlay]::Open($open, [ref]$reopened)
+        if ($script:handle -eq [IntPtr]::Zero) { throw "stream reopen failed: $reopened" }
+        [XmPlay]::Command($script:handle, '{"method":"replies"}') | Out-Null
+
+        if (Wait-Healthy) {
+            Write-Host "    -- fresh session, streaming" -ForegroundColor DarkGray
+        } else {
+            Write-Host "    -- fresh session, but no video: its answers mean nothing" -ForegroundColor DarkYellow
+        }
+    }
 
     function Send-Raw([int]$cmd, [string]$body) {
         $req = @{ method = 'miss.raw'; cmd = $cmd; body = $body } | ConvertTo-Json -Compress
         try {
-            [XmPlay]::Command($handle, $req) | Out-Null
+            [XmPlay]::Command($script:handle, $req) | Out-Null
         } catch {
             Write-Host "    send failed: $_" -ForegroundColor Red
         }
@@ -264,7 +337,7 @@ try {
     # have to come out of the same call or one of them would swallow the other.
     $script:lastUnhandled = ''
     function Get-Replies {
-        $r = [XmPlay]::Command($handle, '{"method":"replies"}') | ConvertFrom-Json
+        $r = [XmPlay]::Command($script:handle, '{"method":"replies"}') | ConvertFrom-Json
         if (-not $r.ok) { return @() }
 
         # Whatever arrived on a channel the transport does not open. Cumulative,
@@ -278,7 +351,7 @@ try {
     }
 
     function Get-Frames {
-        $r = [XmPlay]::Command($handle, '{"method":"stats"}') | ConvertFrom-Json
+        $r = [XmPlay]::Command($script:handle, '{"method":"stats"}') | ConvertFrom-Json
         if (-not $r.ok) { return -1 }
         return [int64]$r.frames
     }
@@ -311,6 +384,255 @@ try {
         Write-Host "==> device info (0x110)" -ForegroundColor Cyan
         Try-Candidate 0x110 'devinfo, empty body' ''
         Try-Candidate 0x110 'devinfo, empty object' '{}'
+    }
+
+    'play' {
+        Write-Host "==> playback request (0x10D), the shape the firmware parses" -ForegroundColor Cyan
+
+        $end = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - ($AgoMinutes * 60)
+        $start = $end - ($WindowMinutes * 60)
+
+        # The camera stamps recordings with its own clock, and nothing says that
+        # clock is UTC: the vendor service that sets it is called hl-set-timezone
+        # and takes an offset. So ask twice, once each way, and let the answer
+        # say which it was. filenotfound for one and filefound for the other is
+        # itself the finding.
+        $offset = [int][TimeZoneInfo]::Local.GetUtcOffset([DateTime]::Now).TotalSeconds
+
+        function New-Request([long]$from, [long]$to) {
+            $fields = [ordered]@{
+                sessionid        = 1
+                starttime        = $from
+                endtime          = $to
+                autoswitchtolive = 0
+                offset           = 0
+                speed            = 1
+                avchannelmerge   = 1
+            }
+            return ($fields | ConvertTo-Json -Compress)
+        }
+
+        Write-Host ("    window {0:yyyy-MM-dd HH:mm:ss} .. {1:HH:mm:ss} UTC" -f
+            [DateTimeOffset]::FromUnixTimeSeconds($start).UtcDateTime,
+            [DateTimeOffset]::FromUnixTimeSeconds($end).UtcDateTime) -ForegroundColor DarkGray
+
+        Try-Candidate 0x10D 'utc timestamps' (New-Request $start $end)
+        if ($offset -ne 0) {
+            Try-Candidate 0x10D 'local timestamps' (New-Request ($start + $offset) ($end + $offset))
+        }
+
+        # The control. If the firmware reading is right, dropping one required
+        # field turns a camera that just answered back into a silent one, and
+        # that is the whole explanation for the probe mode below.
+        $incomplete = '{"sessionid":1,"starttime":' + $start + ',"endtime":' + $end + '}'
+        Try-Candidate 0x10D 'control: missing fields' $incomplete
+
+        # A playback stream arrives on the media path the live one uses, so the
+        # frame counter is the second witness and worth a longer look than the
+        # per-candidate wait allows.
+        Write-Host "==> watching the media path" -ForegroundColor Cyan
+        for ($i = 1; $i -le 5; $i++) {
+            $before = Get-Frames
+            Start-Sleep -Seconds 1
+            $after = Get-Frames
+            $replies = Get-Replies
+            foreach ($reply in $replies) { Write-Host ("      {0}" -f $reply) -ForegroundColor Green }
+            Write-Host ("  {0,2}s frames +{1}" -f $i, ($after - $before)) -ForegroundColor DarkGray
+        }
+    }
+
+    'at' {
+        if ($Epoch -gt 0) {
+            $wall = [DateTimeOffset]::FromUnixTimeSeconds($Epoch).ToLocalTime()
+            Write-Host ("==> asking for {0} exactly, which the index calls {1:yyyy-MM-dd HH:mm:ss} local" -f
+                $Epoch, $wall) -ForegroundColor Cyan
+
+            if (-not (Wait-Healthy)) {
+                Write-Host "    no video, so nothing below is evidence" -ForegroundColor DarkYellow
+            }
+
+            # The clip itself, then its neighbours, which the index says begin a
+            # minute either side. If the exact start is what the lookup wants,
+            # all three answer and the instants between them do not.
+            $id = 0
+            foreach ($offset in @(0, -60, 60, 32)) {
+                $id++
+                if ($id -gt 1) { Reset-Session }
+
+                $start = $Epoch + $offset
+                $fields = [ordered]@{
+                    sessionid        = $id
+                    starttime        = $start
+                    endtime          = $start + 600
+                    autoswitchtolive = 1
+                    offset           = 0
+                    speed            = 1
+                    avchannelmerge   = 1
+                }
+                $label = switch ($offset) {
+                    0 { 'the clip start itself' }
+                    32 { 'part way into the clip' }
+                    default { "a clip {0:+#;-#}s away" -f $offset }
+                }
+                Try-Candidate 0x10D $label ($fields | ConvertTo-Json -Compress)
+            }
+            break
+        }
+
+        if (-not $At) { throw "The at mode needs -At, an instant Mi Home shows a recording for." }
+
+        $wall = [DateTime]::Parse($At, [Globalization.CultureInfo]::InvariantCulture)
+        Write-Host ("==> asking for {0:yyyy-MM-dd HH:mm:ss} as read off the phone" -f $wall) -ForegroundColor Cyan
+
+        $localOffset = [TimeZoneInfo]::Local.GetUtcOffset($wall)
+        $asLocal = [DateTimeOffset]::new($wall, $localOffset).ToUnixTimeSeconds()
+        # Not $asUtc: that is the -AsUtc switch by another spelling, and this
+        # language does not distinguish them.
+        $sameDigitsAsUtc = [DateTimeOffset]::new($wall, [TimeSpan]::Zero).ToUnixTimeSeconds()
+
+        # Mi Home draws the timeline in the phone's timezone, so the phone and
+        # this machine agree on the wall clock. What nobody knows is what the
+        # camera did with that instant on the way into its index: the honest
+        # answer is to offer every plausible reading and see which one it owns.
+        $readings = @(
+            @{ Name = 'phone wall clock, local zone'; Epoch = $asLocal }
+            @{ Name = 'same digits read as utc';      Epoch = $sameDigitsAsUtc }
+            @{ Name = 'local, an hour earlier';       Epoch = $asLocal - 3600 }
+            @{ Name = 'local, an hour later';         Epoch = $asLocal + 3600 }
+        )
+
+        # Recordings are named <minute>M<second>S_<unixtime>.mp4 inside an hour
+        # directory, and Mi Home lists them a minute at a time, so a clip begins
+        # on a minute boundary. Ask for the named instant exactly, and also a
+        # minute either side, because it is not yet known whether the lookup
+        # wants the file's own start or any instant the file covers.
+        if (-not (Wait-Healthy)) {
+            Write-Host "    no video on the first session, so nothing below is evidence" -ForegroundColor DarkYellow
+        }
+
+        $id = 0
+        foreach ($reading in $readings) {
+            foreach ($nudge in @(0, -60, 60)) {
+                $id++
+                if ($id -gt 1) { Reset-Session }
+
+                $start = $reading.Epoch + $nudge
+                $fields = [ordered]@{
+                    sessionid        = $id
+                    starttime        = $start
+                    endtime          = $start + 600
+                    autoswitchtolive = 1
+                    offset           = 0
+                    speed            = 1
+                    avchannelmerge   = 1
+                }
+                $label = if ($nudge -eq 0) { $reading.Name } else { "{0} {1:+#;-#}s" -f $reading.Name, $nudge }
+                Try-Candidate 0x10D $label ($fields | ConvertTo-Json -Compress)
+            }
+        }
+
+        Write-Host "==> watching the media path" -ForegroundColor Cyan
+        for ($i = 1; $i -le 8; $i++) {
+            $before = Get-Frames
+            Start-Sleep -Seconds 1
+            $after = Get-Frames
+            foreach ($reply in (Get-Replies)) { Write-Host ("      {0}" -f $reply) -ForegroundColor Green }
+            Write-Host ("  {0,2}s frames +{1}" -f $i, ($after - $before)) -ForegroundColor DarkGray
+        }
+    }
+
+    'hour' {
+        # The fallback when a named instant misses: Mi Home offers an hour and
+        # then the clips inside it, so walk that hour a minute at a time and let
+        # the camera say which minutes it kept. This is the shape of the app's
+        # own list, arrived at the long way round.
+        if (-not $At) { throw "The hour mode needs -At, the hour to walk." }
+
+        $wall = [DateTime]::Parse($At, [Globalization.CultureInfo]::InvariantCulture)
+        $hour = [DateTime]::new($wall.Year, $wall.Month, $wall.Day, $wall.Hour, 0, 0)
+        $zone = if ($AsUtc) { [TimeSpan]::Zero } else { [TimeZoneInfo]::Local.GetUtcOffset($hour) }
+        $base = [DateTimeOffset]::new($hour, $zone).ToUnixTimeSeconds()
+
+        Write-Host ("==> walking {0:yyyy-MM-dd HH}:00 minute by minute, {1}" -f $hour,
+            $(if ($AsUtc) { 'read as utc' } else { 'read in the local zone' })) -ForegroundColor Cyan
+
+        if (-not (Wait-Healthy)) {
+            Write-Host "    no video on the first session, so nothing below is evidence" -ForegroundColor DarkYellow
+        }
+
+        for ($minute = 0; $minute -lt 60; $minute += $StepMinutes) {
+            # Every candidate gets its own streaming session. One playback
+            # request is all a session is good for, so anything cheaper than
+            # this measures the session rather than the card.
+            if ($minute -gt 0) { Reset-Session }
+
+            $start = $base + ($minute * 60)
+            $fields = [ordered]@{
+                sessionid        = $minute + 1
+                starttime        = $start
+                endtime          = $start + 60
+                autoswitchtolive = 1
+                offset           = 0
+                speed            = 1
+                avchannelmerge   = 1
+            }
+            Try-Candidate 0x10D ("minute {0:00}" -f $minute) ($fields | ConvertTo-Json -Compress)
+        }
+    }
+
+    'sweep' {
+        # The request is understood; what is not known is which instant on the
+        # card the camera will admit to holding. So walk back through the day and
+        # let it say. autoswitchtolive is 1 here so a miss returns the session to
+        # live video instead of leaving it stalled, which lets one session answer
+        # every question instead of one each.
+        Write-Host "==> sweeping backwards for a recording" -ForegroundColor Cyan
+
+        $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        $offset = [int][TimeZoneInfo]::Local.GetUtcOffset([DateTime]::Now).TotalSeconds
+
+        $ages = @(
+            @{ Name = 'now';          Seconds = 0 }
+            @{ Name = '2 minutes';    Seconds = 120 }
+            @{ Name = '10 minutes';   Seconds = 600 }
+            @{ Name = '30 minutes';   Seconds = 1800 }
+            @{ Name = '2 hours';      Seconds = 7200 }
+            @{ Name = '6 hours';      Seconds = 21600 }
+            @{ Name = '12 hours';     Seconds = 43200 }
+            @{ Name = '1 day';        Seconds = 86400 }
+            @{ Name = '2 days';       Seconds = 172800 }
+            @{ Name = '7 days';       Seconds = 604800 }
+        )
+
+        function Send-Playback([long]$from, [long]$to, [string]$name) {
+            $fields = [ordered]@{
+                sessionid        = 1
+                starttime        = $from
+                endtime          = $to
+                autoswitchtolive = 1
+                offset           = 0
+                speed            = 1
+                avchannelmerge   = 1
+            }
+            Try-Candidate 0x10D $name ($fields | ConvertTo-Json -Compress)
+        }
+
+        foreach ($age in $ages) {
+            $start = $now - $age.Seconds
+            Send-Playback $start ($start + 300) ("utc, " + $age.Name)
+        }
+
+        if ($offset -ne 0) {
+            Write-Host "==> the same walk on the camera's local clock" -ForegroundColor Cyan
+            foreach ($age in $ages) {
+                $start = $now - $age.Seconds + $offset
+                Send-Playback $start ($start + 300) ("local, " + $age.Name)
+            }
+        }
+
+        # Documented behaviour, and so a check on the reading rather than a
+        # guess: a zero timestamp means go back to live.
+        Send-Playback 0 0 'zero, switch to live'
     }
 
     'probe' {
@@ -389,8 +711,8 @@ try {
 
     Write-Host ""
     Write-Host "==> final stats" -ForegroundColor Cyan
-    [XmPlay]::Command($handle, '{"method":"stats"}')
+    [XmPlay]::Command($script:handle, '{"method":"stats"}')
 } finally {
-    [XmPlay]::Close($handle)
+    [XmPlay]::Close($script:handle)
     Write-Host "==> session closed" -ForegroundColor DarkGray
 }

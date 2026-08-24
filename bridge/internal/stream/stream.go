@@ -7,8 +7,10 @@
 package stream
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -105,6 +107,19 @@ type Session struct {
 	byteCount  atomic.Uint64
 	dropped    atomic.Uint64
 	replyCount atomic.Uint64
+
+	// Partial RDT message, kept between reads because a reply larger than one
+	// transport message arrives in pieces and only the first piece says how
+	// long the whole is.
+	rdt []byte
+
+	// A reply too big for one chunk is split into several, each encrypted and
+	// length-prefixed on its own, but only the first carrying the command and
+	// the total. The rest are payload and nothing else, so the header has to be
+	// remembered across them.
+	rdtCmd     uint32
+	rdtWant    int
+	rdtPayload []byte
 	audioAsked atomic.Bool
 	lastReply  atomic.Pointer[reply]
 
@@ -376,8 +391,8 @@ func (s *Session) Raw(cmd uint32, body string) error {
 // RawChannel sends an arbitrary command on an arbitrary transport channel, for
 // probing the RDT path the SD card is suspected to live behind. See
 // scripts/probe-rdt.ps1.
-func (s *Session) RawChannel(channel byte, cmd uint32, body string, encrypt bool) error {
-	return s.mediaClient().SendChannel(channel, cmd, body, encrypt)
+func (s *Session) RawChannel(channel byte, cmd uint32, body string, encrypt, envelope bool) error {
+	return s.mediaClient().SendChannel(channel, cmd, body, encrypt, envelope)
 }
 
 // Tap hands back the messages seen on channels this bridge does not open, as
@@ -386,11 +401,105 @@ func (s *Session) RawChannel(channel byte, cmd uint32, body string, encrypt bool
 func (s *Session) Tap() []string {
 	msgs := s.mediaClient().Tap()
 
-	out := make([]string, len(msgs))
-	for i, m := range msgs {
-		out[i] = fmt.Sprintf("channel %d seq %d: %x", m.Channel, m.Seq, m.Data)
+	var out []string
+
+	// A gap in the channel's byte stream cannot be reassembled across, and the
+	// bytes give no sign of it, so the partial message goes with the gap.
+	if lost := s.mediaClient().TapLost(); lost[1] > 0 {
+		out = append(out, fmt.Sprintf("rdt: lost %d messages, abandoning the partial one", lost[1]))
+		s.rdt = nil
 	}
+
+	taken := 0
+	for _, m := range msgs {
+		// Channel 1 is the RDT path. Its messages are encrypted, and a reply
+		// larger than one transport message is split across several of them
+		// with only the first carrying the length, so a message has to be
+		// rebuilt from the channel's byte stream before it can be read at all.
+		if m.Channel == 1 {
+			s.rdt = append(s.rdt, m.Data...)
+			taken++
+			continue
+		}
+		out = append(out, fmt.Sprintf("channel %d seq %d: %x", m.Channel, m.Seq, m.Data))
+	}
+
+	// Say what was taken in, not only what came out. Reassembly that consumes
+	// a hundred messages and completes none looks exactly like a camera that
+	// said nothing, and only this line tells them apart.
+	if taken > 0 {
+		out = append(out, fmt.Sprintf("rdt: took in %d messages, buffer now %d bytes",
+			taken, len(s.rdt)))
+	}
+
+	return append(out, s.drainRDT()...)
+}
+
+// drainRDT takes whole RDT messages off the reassembly buffer and decrypts
+// them, leaving anything incomplete for the next read.
+func (s *Session) drainRDT() []string {
+	var out []string
+
+	for len(s.rdt) >= 4 {
+		size := int(binary.BigEndian.Uint32(s.rdt))
+
+		// A length that could never be right means the stream is not what this
+		// thinks it is, and keeping the bytes would only misread every message
+		// after them.
+		if size <= 0 || size > 1<<20 {
+			s.rdt = nil
+			return append(out, fmt.Sprintf("rdt: giving up on a stream claiming %d bytes", size))
+		}
+		if len(s.rdt) < size+4 {
+			// Say so rather than returning nothing: a read that quietly
+			// swallows a hundred messages is indistinguishable from a camera
+			// that never answered, and the two want opposite fixes.
+			return append(out, fmt.Sprintf("rdt: %d of %d payload bytes, chunk %d of %d in hand",
+				len(s.rdtPayload), s.rdtWant, len(s.rdt)-4, size))
+		}
+
+		plain, err := s.mediaClient().DecodeRDT(s.rdt[4 : 4+size])
+		s.rdt = s.rdt[4+size:]
+		if err != nil {
+			out = append(out, fmt.Sprintf("rdt: %v", err))
+			continue
+		}
+
+		if s.rdtWant == 0 {
+			if len(plain) < 8 {
+				out = append(out, fmt.Sprintf("rdt: a %d byte chunk cannot be a header", len(plain)))
+				continue
+			}
+			s.rdtCmd = binary.LittleEndian.Uint32(plain)
+			s.rdtWant = int(binary.LittleEndian.Uint32(plain[4:]))
+			s.rdtPayload = append(s.rdtPayload[:0], plain[8:]...)
+		} else {
+			s.rdtPayload = append(s.rdtPayload, plain...)
+		}
+
+		if len(s.rdtPayload) < s.rdtWant {
+			continue
+		}
+
+		// The payload is text for the index replies and binary for the file
+		// ones, so it is offered both ways and the reader takes what suits.
+		body := s.rdtPayload[:s.rdtWant]
+		out = append(out, fmt.Sprintf("rdt message, cmd %d, %d bytes\n  text: %s\n  hex:  %x",
+			s.rdtCmd, len(body),
+			strings.ToValidUTF8(strings.Map(printable, string(body)), "."), body))
+
+		s.rdtCmd, s.rdtWant, s.rdtPayload = 0, 0, nil
+	}
+
 	return out
+}
+
+// printable keeps text readable when a payload turns out to be binary.
+func printable(r rune) rune {
+	if r == '\n' || r == '\t' || (r >= 0x20 && r < 0x7f) {
+		return r
+	}
+	return '.'
 }
 
 // MediaHeaders hands back the raw media headers a dual-lens session has seen,
@@ -415,7 +524,8 @@ func (s *Session) Unhandled() []string {
 		if count == 0 {
 			continue
 		}
-		out = append(out, fmt.Sprintf("channel %d: %d messages, first %x", ch, count, samples[ch]))
+		out = append(out, fmt.Sprintf("channel %d: %d messages, %d offered to the tap, first %x",
+			ch, count, s.mediaClient().TapSeen()[ch], samples[ch]))
 	}
 	return out
 }

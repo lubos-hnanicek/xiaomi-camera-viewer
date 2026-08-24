@@ -60,8 +60,10 @@ type Conn struct {
 	unhandled [4]atomic.Uint64
 	sample    [4]atomic.Pointer[[]byte]
 
-	tapMu sync.Mutex
-	taps  [4][]TapMessage
+	tapMu   sync.Mutex
+	taps    [4][]TapMessage
+	tapLost [4]uint64
+	tapSeen [4]uint64
 
 	// One sequence counter per channel, since each is numbered independently.
 	seqMu sync.Mutex
@@ -93,10 +95,11 @@ type TapMessage struct {
 	Data    []byte
 }
 
-// tapDepth bounds what the tap remembers per channel. Deep enough to hold a
-// burst answering one probe command, shallow enough to be free when nobody
-// drains it.
-const tapDepth = 64
+// tapDepth bounds what the tap remembers per channel. A recording index runs to
+// a couple of hundred messages and has to be reassembled from all of them, so
+// this is deep enough to hold one whole transfer between drains; 64 was not,
+// and losing the oldest message of a stream costs the entire stream.
+const tapDepth = 4096
 
 // Tap hands back what arrived on the channels this transport does not open,
 // oldest first, and forgets it. Draining on read is what lets a probe attribute
@@ -118,13 +121,38 @@ func (c *Conn) Tap() []TapMessage {
 	return out
 }
 
+// TapLost reports, per channel, how many messages the tap threw away because
+// nobody drained it in time, and forgets them. A caller reassembling a stream
+// has to know: a message lost in the middle makes every byte after it
+// unreadable, and nothing about the bytes themselves says so.
+func (c *Conn) TapLost() [4]uint64 {
+	c.tapMu.Lock()
+	defer c.tapMu.Unlock()
+
+	lost := c.tapLost
+	c.tapLost = [4]uint64{}
+	return lost
+}
+
+// TapSeen reports how many messages the tap was ever handed, per channel. It
+// exists to tell "the camera said nothing" apart from "something between the
+// wire and the caller lost it", which no other number here distinguishes.
+func (c *Conn) TapSeen() [4]uint64 {
+	c.tapMu.Lock()
+	defer c.tapMu.Unlock()
+
+	return c.tapSeen
+}
+
 func (c *Conn) tap(ch byte, seq uint16, data []byte) {
 	c.tapMu.Lock()
 	defer c.tapMu.Unlock()
 
 	if len(c.taps[ch]) == tapDepth {
 		c.taps[ch] = append(c.taps[ch][:0], c.taps[ch][1:]...)
+		c.tapLost[ch]++
 	}
+	c.tapSeen[ch]++
 	c.taps[ch] = append(c.taps[ch], TapMessage{Channel: ch, Seq: seq, Data: bytes.Clone(data)})
 }
 

@@ -147,6 +147,27 @@ func (c *Client) Unhandled() ([4]uint64, [4][]byte) { return c.conn.Unhandled() 
 
 // Tap passes through whatever arrived on those channels, message by message.
 func (c *Client) Tap() []cs2.TapMessage { return c.conn.Tap() }
+
+// TapLost passes through what the tap had to throw away, per channel.
+func (c *Client) TapLost() [4]uint64 { return c.conn.TapLost() }
+
+// TapSeen passes through how much the tap was ever offered, per channel.
+func (c *Client) TapSeen() [4]uint64 { return c.conn.TapSeen() }
+
+// DecodeRDT decrypts one reassembled RDT message, which the camera writes the
+// way it writes everything else after authentication: an eight byte nonce and
+// then the body under the session key. The caller has already taken off the
+// four byte length the message arrived with. The plaintext underneath is a four
+// byte command, a four byte length and the payload.
+//
+// This exists because a tap that can only report ciphertext cannot tell a reply
+// from noise, and the key lives here.
+func (c *Client) DecodeRDT(data []byte) ([]byte, error) {
+	if len(data) < 8 {
+		return nil, fmt.Errorf("miss: %d bytes is too short for an rdt message", len(data))
+	}
+	return crypto.Decode(data, c.key)
+}
 func (c *Client) SetDeadline(t time.Time) error {
 	return c.conn.SetDeadline(t)
 }
@@ -306,7 +327,13 @@ func (c *Client) SendRaw(cmd uint32, body string) error {
 // encrypt says whether to wrap the command the way the command channel does.
 // Which of the two another channel wants is unknown, so it is the caller's
 // choice; everything after authentication on channel 0 is encrypted.
-func (c *Client) SendChannel(channel byte, cmd uint32, body string, encrypt bool) error {
+// The envelope is what the command channel wraps an encrypted message in, and
+// it is not universal: the camera's own sender writes the RDT channel as the
+// bare encrypted blob, no envelope id ahead of it. So a caller probing another
+// channel has to be able to leave it off, and getting this wrong is invisible
+// -- the far end decrypts from the wrong offset, finds nonsense and says
+// nothing at all.
+func (c *Client) SendChannel(channel byte, cmd uint32, body string, encrypt, envelope bool) error {
 	data := command(cmd, body)
 
 	if encrypt {
@@ -314,8 +341,10 @@ func (c *Client) SendChannel(channel byte, cmd uint32, body string, encrypt bool
 		if err != nil {
 			return err
 		}
-		// The envelope carries its own command id, as on the command channel.
-		data = append(binary.BigEndian.AppendUint32(nil, cmdEncoded), enc...)
+		data = enc
+		if envelope {
+			data = append(binary.BigEndian.AppendUint32(nil, cmdEncoded), enc...)
+		}
 	}
 
 	return c.conn.WriteChannel(channel, data)
