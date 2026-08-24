@@ -84,10 +84,15 @@ private:
         std::mutex frameMutex;
         AVFrame* pendingFrame = nullptr;
         VideoFrameTexture texture;
+        uint32_t prerollEpoch = 0;
     };
 
     void run();
     void storeFrame(size_t track, const AVFrame* frame);
+    void completePrerollTrack(size_t track);
+    void beginPreroll();
+    void endPreroll();
+    void setStreamDiscard(int selectedAudioOption);
     void clearPendingFrames();
     bool applySeek(int64_t positionMs, std::string& error);
     bool applyAudioSelection(int option, std::string& error);
@@ -114,8 +119,11 @@ private:
     bool workerAlive_ = false;
     bool playing_ = false;
     bool eof_ = false;
+    bool prerolling_ = false;
     int64_t basePositionMs_ = 0;
     int64_t durationMs_ = 0;
+    size_t prerollLeft_ = 0;
+    uint32_t prerollEpoch_ = 0;
     std::chrono::steady_clock::time_point baseTime_{};
     std::optional<int64_t> seekRequest_;
     int requestedAudioOption_ = -1;

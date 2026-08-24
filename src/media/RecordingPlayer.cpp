@@ -10,6 +10,7 @@
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
+#include <libavutil/avutil.h>
 #include <libavutil/dict.h>
 #include <libavutil/frame.h>
 }
@@ -56,6 +57,7 @@ bool RecordingPlayer::open(const std::filesystem::path& path, D3D11Context& gpu,
         return false;
     }
     format_ = opened;
+    format_->flags |= AVFMT_FLAG_FAST_SEEK;
 
     if (const int rc = avformat_find_stream_info(format_, nullptr); rc < 0) {
         error = "could not read the recording's tracks: " + avError(rc);
@@ -141,6 +143,7 @@ bool RecordingPlayer::open(const std::filesystem::path& path, D3D11Context& gpu,
         seekRequest_.reset();
         requestedAudioOption_ = defaultAudio;
         appliedAudioOption_.store(-2, std::memory_order_release);
+        prerolling_ = false;
         workerAlive_ = true;
         error_.clear();
     }
@@ -201,8 +204,11 @@ void RecordingPlayer::close() {
     seekRequest_.reset();
     requestedAudioOption_ = -1;
     appliedAudioOption_.store(-2, std::memory_order_release);
+    prerolling_ = false;
     workerAlive_ = false;
     error_.clear();
+    prerollLeft_ = 0;
+    prerollEpoch_ = 0;
 }
 
 void RecordingPlayer::play() {
@@ -214,6 +220,7 @@ void RecordingPlayer::play() {
         basePositionMs_ = 0;
         seekRequest_ = 0;
         eof_ = false;
+        prerolling_ = true;
     }
     baseTime_ = std::chrono::steady_clock::now();
     playing_ = true;
@@ -250,14 +257,13 @@ void RecordingPlayer::seek(int64_t positionMs) {
             return;
         }
         positionMs = clampPlaybackPosition(positionMs, durationMs_);
+        // Keep the last picture on screen. Tearing down the D3D11 video
+        // processor made every seek flash black and rebuild the GPU pipeline.
         basePositionMs_ = positionMs;
         baseTime_ = std::chrono::steady_clock::now();
         seekRequest_ = positionMs;
         eof_ = false;
-    }
-    clearPendingFrames();
-    for (auto& state : video_) {
-        state->texture.reset();
+        prerolling_ = true;
     }
     if (audio_ != nullptr) {
         audio_->reset();
@@ -327,20 +333,22 @@ void RecordingPlayer::run() {
     }
 
     bool havePacket = false;
-    int64_t discardUntilMs = 0;
+    bool snapClockAfterSeek = false;
+    int64_t prerollUntilMs = -1;
 
     while (true) {
         std::optional<int64_t> seek;
         int requestedAudio = -1;
         bool shouldPlay = false;
+        bool preroll = false;
         int64_t position = 0;
         {
             std::unique_lock lock(controlMutex_);
-            controlSignal_.wait_for(lock, 5ms, [this] {
+            controlSignal_.wait(lock, [this] {
                 return stopping_ || seekRequest_.has_value() ||
                        requestedAudioOption_ !=
                            appliedAudioOption_.load(std::memory_order_acquire) ||
-                       playing_;
+                       playing_ || prerolling_;
             });
             if (stopping_) {
                 break;
@@ -351,6 +359,7 @@ void RecordingPlayer::run() {
             }
             requestedAudio = requestedAudioOption_;
             shouldPlay = playing_;
+            preroll = prerolling_;
             position = positionLocked(std::chrono::steady_clock::now());
         }
 
@@ -364,7 +373,9 @@ void RecordingPlayer::run() {
                 setError(error);
                 break;
             }
-            discardUntilMs = *seek;
+            beginPreroll();
+            snapClockAfterSeek = true;
+            prerollUntilMs = -1;
             continue;
         }
 
@@ -381,7 +392,7 @@ void RecordingPlayer::run() {
             }
         }
 
-        if (!shouldPlay) {
+        if (!shouldPlay && !preroll) {
             continue;
         }
 
@@ -392,6 +403,7 @@ void RecordingPlayer::run() {
                 basePositionMs_ = durationMs_;
                 playing_ = false;
                 eof_ = true;
+                prerolling_ = false;
                 continue;
             }
             if (rc < 0) {
@@ -408,8 +420,24 @@ void RecordingPlayer::run() {
             appliedAudio >= 0 &&
             audioInfo_[static_cast<size_t>(appliedAudio)].streamIndex == packet->stream_index;
         const bool isVideo = videoByStream_.contains(packet->stream_index);
+        if (snapClockAfterSeek && isVideo && ptsMs >= 0) {
+            snapClockAfterSeek = false;
+            prerollUntilMs = ptsMs + 500;
+            std::scoped_lock lock(controlMutex_);
+            basePositionMs_ = clampPlaybackPosition(ptsMs, durationMs_);
+            baseTime_ = std::chrono::steady_clock::now();
+            position = basePositionMs_;
+        }
+        if (preroll && isVideo && prerollUntilMs >= 0 && ptsMs >= prerollUntilMs) {
+            prerollLeft_ = 0;
+            endPreroll();
+            preroll = false;
+        }
+
+        // Skip the paced wait while catching the keyframe after a seek, otherwise
+        // a paused scrub sits on a 5 ms poll and a playing seek burns the GOP.
         const int64_t leadMs = selectedAudio ? 120 : 30;
-        if ((isVideo || selectedAudio) && ptsMs >= 0 && ptsMs > position + leadMs) {
+        if (!preroll && (isVideo || selectedAudio) && ptsMs >= 0 && ptsMs > position + leadMs) {
             const int64_t waitMs = std::min<int64_t>(20, ptsMs - position - leadMs);
             std::unique_lock lock(controlMutex_);
             controlSignal_.wait_for(lock, std::chrono::milliseconds(waitMs));
@@ -419,17 +447,14 @@ void RecordingPlayer::run() {
         if (const auto video = videoByStream_.find(packet->stream_index);
             video != videoByStream_.end()) {
             const size_t track = video->second;
-            const bool show = ptsMs < 0 || ptsMs >= discardUntilMs;
-            if (!video_[track]->decoder.decode(
-                    packet, [this, track, show](const AVFrame* frame) {
-                        if (show) {
-                            storeFrame(track, frame);
-                        }
-                    })) {
+            if (!video_[track]->decoder.decode(packet, [this, track](const AVFrame* frame) {
+                    storeFrame(track, frame);
+                    completePrerollTrack(track);
+                })) {
                 setError(std::format("{} could not be decoded", video_[track]->info.title));
                 break;
             }
-        } else if (selectedAudio && (ptsMs < 0 || ptsMs >= discardUntilMs)) {
+        } else if (selectedAudio && shouldPlay) {
             if (!audioDecoder_.decode(packet, [this](const AVFrame* frame) {
                     if (audio_ != nullptr) {
                         audio_->submit(frame);
@@ -451,6 +476,7 @@ void RecordingPlayer::run() {
     {
         std::scoped_lock lock(controlMutex_);
         workerAlive_ = false;
+        prerolling_ = false;
     }
 }
 
@@ -469,6 +495,60 @@ void RecordingPlayer::storeFrame(size_t track, const AVFrame* frame) {
     state.pendingFrame = copy;
 }
 
+void RecordingPlayer::completePrerollTrack(size_t track) {
+    VideoState& state = *video_[track];
+    if (state.prerollEpoch == prerollEpoch_) {
+        return;
+    }
+    state.prerollEpoch = prerollEpoch_;
+    if (prerollLeft_ == 0) {
+        return;
+    }
+    --prerollLeft_;
+    if (prerollLeft_ == 0) {
+        endPreroll();
+    }
+}
+
+void RecordingPlayer::beginPreroll() {
+    ++prerollEpoch_;
+    prerollLeft_ = video_.size();
+    std::scoped_lock lock(controlMutex_);
+    prerolling_ = prerollLeft_ > 0;
+}
+
+void RecordingPlayer::endPreroll() {
+    std::scoped_lock lock(controlMutex_);
+    prerolling_ = false;
+    // Restart the clock after the keyframe is on screen so the time spent
+    // seeking is not skipped as if it had already played.
+    baseTime_ = std::chrono::steady_clock::now();
+}
+
+void RecordingPlayer::setStreamDiscard(int selectedAudioOption) {
+    if (format_ == nullptr) {
+        return;
+    }
+    for (unsigned int i = 0; i < format_->nb_streams; ++i) {
+        AVStream* stream = format_->streams[i];
+        const AVMediaType type = stream->codecpar->codec_type;
+        if (type == AVMEDIA_TYPE_VIDEO) {
+            stream->discard = AVDISCARD_DEFAULT;
+            continue;
+        }
+        if (type == AVMEDIA_TYPE_AUDIO) {
+            const bool selected =
+                selectedAudioOption >= 0 &&
+                static_cast<size_t>(selectedAudioOption) < audioInfo_.size() &&
+                audioInfo_[static_cast<size_t>(selectedAudioOption)].streamIndex ==
+                    static_cast<int>(i);
+            stream->discard = selected ? AVDISCARD_DEFAULT : AVDISCARD_ALL;
+            continue;
+        }
+        stream->discard = AVDISCARD_ALL;
+    }
+}
+
 void RecordingPlayer::clearPendingFrames() {
     for (auto& state : video_) {
         std::scoped_lock lock(state->frameMutex);
@@ -481,8 +561,15 @@ void RecordingPlayer::clearPendingFrames() {
 bool RecordingPlayer::applySeek(int64_t positionMs, std::string& error) {
     const int64_t target =
         av_rescale_q(positionMs, AVRational{1, 1000}, AVRational{1, AV_TIME_BASE});
-    const int rc = avformat_seek_file(format_, -1, std::numeric_limits<int64_t>::min(), target,
-                                      std::numeric_limits<int64_t>::max(), AVSEEK_FLAG_BACKWARD);
+
+    // Cap max_ts at the requested time so the demuxer looks for the previous
+    // keyframe instead of scanning the rest of the file for a "closer" one.
+    int rc = avformat_seek_file(format_, -1, std::numeric_limits<int64_t>::min(), target, target,
+                                AVSEEK_FLAG_BACKWARD);
+    if (rc < 0) {
+        rc = avformat_seek_file(format_, -1, std::numeric_limits<int64_t>::min(), target,
+                                std::numeric_limits<int64_t>::max(), AVSEEK_FLAG_BACKWARD);
+    }
     if (rc < 0) {
         error = "could not seek in the recording: " + avError(rc);
         return false;
@@ -505,6 +592,7 @@ bool RecordingPlayer::applyAudioSelection(int option, std::string& error) {
         audio_->reset();
     }
     if (option < 0) {
+        setStreamDiscard(-1);
         appliedAudioOption_.store(-1, std::memory_order_release);
         return true;
     }
@@ -513,6 +601,7 @@ bool RecordingPlayer::applyAudioSelection(int option, std::string& error) {
     if (!audioDecoder_.open(format_->streams[streamIndex]->codecpar, error)) {
         return false;
     }
+    setStreamDiscard(option);
     appliedAudioOption_.store(option, std::memory_order_release);
     return true;
 }
@@ -523,11 +612,12 @@ void RecordingPlayer::setError(std::string error) {
     error_ = std::move(error);
     basePositionMs_ = positionLocked(std::chrono::steady_clock::now());
     playing_ = false;
+    prerolling_ = false;
     workerAlive_ = false;
 }
 
 int64_t RecordingPlayer::positionLocked(std::chrono::steady_clock::time_point now) const {
-    if (!playing_) {
+    if (!playing_ || prerolling_) {
         return clampPlaybackPosition(basePositionMs_, durationMs_);
     }
     const int64_t elapsed =

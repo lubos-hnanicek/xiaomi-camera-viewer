@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <format>
 
 #include "app/App.h"
@@ -20,6 +21,16 @@ struct PlaybackZoomState {
 
 PlaybackZoomState& playbackZoomState() {
     static PlaybackZoomState state;
+    return state;
+}
+
+struct PlaybackSeekState {
+    bool dragging = false;
+    int64_t previewMs = 0;
+};
+
+PlaybackSeekState& playbackSeekState() {
+    static PlaybackSeekState state;
     return state;
 }
 
@@ -79,11 +90,11 @@ void handleKeys(App& app, size_t trackCount) {
     if (ImGui::IsKeyPressed(ImGuiKey_F, false)) {
         app.setPlaybackFocused(!app.playbackFocused());
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false) && !playbackSeekState().dragging) {
         const auto status = player.status();
         player.seek(status.positionMs - 5000);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false) && !playbackSeekState().dragging) {
         const auto status = player.status();
         player.seek(status.positionMs + 5000);
     }
@@ -117,19 +128,30 @@ bool drawToolbar(App& app) {
             player.toggle();
         }
         ImGui::SameLine();
-        ImGui::Text("%s / %s", playbackTime(status.positionMs).c_str(),
+
+        PlaybackSeekState& seeking = playbackSeekState();
+        if (!status.open) {
+            seeking = {};
+        }
+        const int64_t shownMs = seeking.dragging ? seeking.previewMs : status.positionMs;
+        ImGui::Text("%s / %s", playbackTime(shownMs).c_str(),
                     playbackTime(status.durationMs).c_str());
         ImGui::SameLine();
 
-        int64_t position = status.positionMs;
+        int64_t position = shownMs;
         constexpr int64_t zero = 0;
         const int64_t duration = std::max<int64_t>(status.durationMs, 1);
         ImGui::SetNextItemWidth(std::max(180.0f, ImGui::GetContentRegionAvail().x - 130.0f));
         if (ImGui::SliderScalar("##playback-position", ImGuiDataType_S64, &position, &zero,
                                 &duration, "", ImGuiSliderFlags_NoInput)) {
+            seeking.dragging = true;
+            seeking.previewMs = position;
+        }
+        if (seeking.dragging && ImGui::IsItemDeactivatedAfterEdit()) {
+            seeking.dragging = false;
             player.seek(position);
         }
-        ImGui::SetItemTooltip("Seek through the recording (Left/Right: 5 seconds)");
+        ImGui::SetItemTooltip("Seek to the previous keyframe on release (Left/Right: 5 seconds)");
         ImGui::EndDisabled();
 
         ImGui::SameLine();
