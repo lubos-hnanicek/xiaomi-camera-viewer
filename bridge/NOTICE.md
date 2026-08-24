@@ -105,9 +105,9 @@ Upstream revision: `v1.9.14` (commit `b5948cfb25404cc5cb37b166ecaa2dca20b11d4b`)
 - Sequence numbers are counted per channel, and `WriteChannel` sends on one that
   is not the command channel. Upstream keeps a counter for channel 0 and another
   for the channel 3 backchannel; a third channel would need a third. This exists
-  for the SD card investigation described in the README: the camera reads what
-  arrives on channel 1 and hangs up on a plaintext message there, which is the
-  only thing yet found that a camera does in response to anything about playback.
+  for the SD card investigation described in the README, which used it to
+  establish that channels 1 and 3 answer nothing at all, and that a data message
+  of four bytes ends the session on every channel including the command channel.
 
 ## When updating go2rtc
 

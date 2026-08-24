@@ -58,15 +58,31 @@ CS2 multiplexes four channels over one connection: this bridge opens 0 for
 commands and 2 for media, go2rtc's talkback writes speaker audio on 3, and
 nothing anywhere writes on 1.
 
-Channel 1 turns out not to be idle. A CW500 takes an encrypted command there
-without answering it and goes on streaming, and hangs up the moment an
-unencrypted one arrives -- so something on the camera is reading that channel and
-judging what it finds, which an unused channel would not do. Whether what
-offends it is the missing encryption or the four-byte length is the next
-question. `scripts/probe-rdt.ps1` runs this a candidate at a time, each on its
-own session, because a camera that has hung up ignores discovery for a few
-seconds afterwards and every later result on a dead session measures the
-disconnection rather than the candidate.
+Channel 1 is idle after all. It takes whatever is sent to it -- encrypted or
+plaintext, a real command id or nonsense -- without answering, without an error
+and without disturbing the video, which is exactly what a channel nobody is
+listening on looks like. Channel 3 behaves the same way. So the reason a
+playback request goes unanswered is not that the answer arrives somewhere this
+bridge does not look, and that was the one explanation the earlier evidence could
+not rule out.
+
+Getting there needed a control that is worth writing down, because without it the
+opposite conclusion looks solid. A four-byte data message ends the session
+immediately, and the first plaintext candidate was four bytes: a bare command id
+with no body. That reads as a camera rejecting unencrypted data on channel 1
+until the same four bytes are sent on the command channel, which the app uses
+constantly, and that session dies too. Sixteen bytes of the same plaintext is
+then accepted on every channel and ignored on every channel. The effect was the
+length and had nothing to do with the channel or the encryption. Nothing here
+sends anything that short -- every command is encrypted and so is at least
+sixteen bytes -- so this is a fact about the cameras rather than a bug to fix.
+
+`scripts/probe-rdt.ps1` is that experiment. It runs one candidate per session and
+only on a session already seen to be carrying video, because a camera that has
+hung up ignores discovery for a while afterwards, then starts refusing the login
+outright with code 3, and a result measured on a session that was already dead
+describes the disconnection rather than the candidate. `-Mode shortness` is the
+control.
 
 ## Requirements
 

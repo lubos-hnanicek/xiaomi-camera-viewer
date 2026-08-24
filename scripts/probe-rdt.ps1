@@ -27,6 +27,11 @@
                 already know how to read, on each channel in turn
       isolate   the same candidates, one per session, because a camera that
                 hangs up on the first one makes every later result meaningless
+      discriminate
+                what channel 1 objects to: length, framing or content
+      shortness the control for that: whether a short message is fatal on the
+                command channel too, which would make channel 1 unremarkable
+      length    where the length limit falls
       playback  0x10D on every channel, with the tap running
       open      candidate channel-open frames on channel 1
       one       an arbitrary channel, command, body and encryption
@@ -44,7 +49,8 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('watch', 'channels', 'playback', 'open', 'one', 'isolate')]
+    [ValidateSet('watch', 'channels', 'playback', 'open', 'one', 'isolate', 'discriminate',
+        'shortness', 'length')]
     [string]$Mode = 'watch',
 
     # For the one mode. Cmd is written as four big-endian bytes ahead of Body,
@@ -59,11 +65,16 @@ param(
     [string]$Did,
     [string]$Lens = '',
 
-    # TCP is the better transport for this. A reply large enough to matter here
-    # is a file listing, which spans several packets, and the command channel
-    # buffers nothing out of order over UDP.
+    # Empty lets the camera choose, which both models answer by choosing TCP
+    # anyway. Asking for TCP outright is worse rather than better: it makes the
+    # handshake accept only one of the two ready messages, and a CW400 that
+    # answers the other one then looks like a camera that is not there.
+    #
+    # TCP is what this wants regardless. A reply large enough to matter here is a
+    # file listing, which spans several packets, and the command channel buffers
+    # nothing out of order over UDP.
     [ValidateSet('tcp', 'udp', '')]
-    [string]$Transport = 'tcp',
+    [string]$Transport = '',
 
     [string]$DllPath,
 
@@ -71,9 +82,10 @@ param(
 
     # How long to leave a camera alone after it has hung up, and how many times
     # to try opening before giving up. A camera that ends a session ignores the
-    # discovery datagram for several seconds afterwards.
-    [int]$SettleMs = 10000,
-    [int]$OpenAttempts = 4
+    # discovery datagram for several seconds afterwards, and one pushed harder
+    # than that starts refusing the MISS login outright with code 3.
+    [int]$SettleMs = 15000,
+    [int]$OpenAttempts = 5
 )
 
 $ErrorActionPreference = 'Stop'
@@ -282,6 +294,35 @@ function Get-Health([IntPtr]$handle) {
     return @{ Frames = [int64]$r.frames; Error = [string]$r.error }
 }
 
+# A session that is not carrying video cannot measure whether a candidate stopped
+# the video. Opening one and sending immediately is not enough: the earlier runs
+# produced rows with no frames on either side of the candidate, which say nothing
+# about the candidate at all. So a session is only handed out once it has been
+# seen to carry frames.
+function Open-HealthySession {
+    for ($attempt = 1; ; $attempt++) {
+        $handle = Open-Session
+
+        $before = (Get-Health $handle).Frames
+        Start-Sleep -Milliseconds $WaitMs
+        $health = Get-Health $handle
+
+        if (-not $health.Error -and ($health.Frames - $before) -gt 0) {
+            Write-Host ("    warm: {0} frames before the candidate" -f ($health.Frames - $before)) -ForegroundColor DarkGray
+            return $handle
+        }
+
+        $why = if ($health.Error) { $health.Error } else { 'no video' }
+        Write-Host ("    session unusable ({0}), discarding it" -f $why) -ForegroundColor DarkYellow
+        [XmRdt]::Close($handle)
+
+        if ($attempt -ge $OpenAttempts) {
+            throw "no healthy session after $attempt attempts"
+        }
+        Start-Sleep -Milliseconds $SettleMs
+    }
+}
+
 # Reports where an answer came back, which is the whole measurement: the command
 # channel, another channel, or nowhere. Returns whether the session survived.
 function Try-Send([IntPtr]$handle, [int]$channel, [int]$cmd, [string]$body, [bool]$encrypt, [string]$name) {
@@ -308,11 +349,19 @@ function Try-Send([IntPtr]$handle, [int]$channel, [int]$cmd, [string]$body, [boo
         Write-Host ("      frames +{0}" -f ($after - $before)) -ForegroundColor DarkGray
     }
 
+    # Three outcomes, not two. A camera can drop the connection outright, and it
+    # can also stop sending video while the connection is still open, which the
+    # CW400 does and the CW500 does not. Both mean the candidate was refused;
+    # collapsing them would hide which refusal a model uses.
     if ($health.Error) {
         Write-Host ("      SESSION ENDED: {0}" -f $health.Error) -ForegroundColor Red
-        return $false
+        return 'ended'
     }
-    return $true
+    if (($after - $before) -le 0) {
+        Write-Host "      MEDIA STOPPED, connection not yet closed" -ForegroundColor Red
+        return 'media-stopped'
+    }
+    return 'alive'
 }
 
 # The candidates the channels and isolate modes share, so that running them one
@@ -337,19 +386,116 @@ $channelCandidates = @(
 # channel 1 is enough to stop the media flow, and every later result on that
 # session then measures a dead connection rather than the candidate.
 
+# --- discriminate: what channel 1 objects to --------------------------------
+#
+# Channel 1 takes an encrypted command silently and refuses a plaintext one. The
+# two differ in more than encryption, so on its own that does not say what the
+# camera is checking. Three explanations fit, and one candidate each separates
+# them:
+#
+#   length     the plaintext refusal is four bytes and the encrypted one sixteen,
+#              so a parser wanting a minimum header would refuse the short one
+#              whatever it contained. A sixteen-byte plaintext message tests it.
+#   framing    the encrypted form begins with the 0x1001 envelope id. Sending
+#              that id followed by bytes that are not a valid ciphertext keeps
+#              the framing and throws away the content: the cipher is
+#              unauthenticated, so the camera cannot reject it as forged, only as
+#              a command id that decrypts to nonsense.
+#   content    if neither of those is tolerated but a real encrypted command is,
+#              the camera wants something it can actually decrypt and recognise.
+$discriminateCandidates = @(
+    @{ Cmd = 0x110;  Body = '';                 Encrypt = $true;  Name = 'encrypted, control' }
+    @{ Cmd = 0x110;  Body = '';                 Encrypt = $false; Name = 'plain, 4 bytes' }
+    @{ Cmd = 0x110;  Body = 'AAAAAAAAAAAA';     Encrypt = $false; Name = 'plain, 16 bytes' }
+    @{ Cmd = 0x1001; Body = 'AAAAAAAAAAAA';     Encrypt = $false; Name = 'envelope, nonsense inside' }
+)
+
+# --- shortness: is a four-byte message fatal anywhere? ----------------------
+#
+# The control the channel modes never ran. Every message this bridge has ever
+# sent on channel 0 is encrypted and therefore at least sixteen bytes, so a short
+# one has never been tried there. If channel 0 dies of it too, then nothing about
+# channel 1 is special: the camera simply cannot parse a data message that short,
+# whichever channel carries it, and the earlier reading of channel 1 as a channel
+# that inspects what it is sent does not survive.
+$shortnessChannels = @(0, 1, 3)
+
+if ($Mode -eq 'shortness') {
+    Write-Host "==> a four-byte plaintext message on each channel" -ForegroundColor Cyan
+    Write-Host "    channel 0 is the control: it is the one channel known to work" -ForegroundColor DarkGray
+
+    foreach ($channel in $shortnessChannels) {
+        $handle = Open-HealthySession
+        try {
+            $null = Try-Send $handle $channel 0x110 '' $false ("4 bytes on channel $channel")
+        } finally {
+            [XmRdt]::Close($handle)
+        }
+
+        Start-Sleep -Milliseconds $SettleMs
+    }
+
+    Write-Host "==> done" -ForegroundColor DarkGray
+    return
+}
+
+# --- length: where the limit falls ------------------------------------------
+#
+# Four bytes is refused and sixteen is accepted. Where the boundary sits says
+# what the far end is reading: a header it wants whole, or simply more than
+# nothing.
+if ($Mode -eq 'length') {
+    Write-Host ("==> plaintext messages of growing length on channel {0}" -f $Channel) -ForegroundColor Cyan
+
+    foreach ($extra in 0, 2, 4, 6, 8) {
+        $body = 'A' * $extra
+        $handle = Open-HealthySession
+        try {
+            $null = Try-Send $handle $Channel 0x110 $body $false ("{0} bytes" -f (4 + $extra))
+        } finally {
+            [XmRdt]::Close($handle)
+        }
+
+        Start-Sleep -Milliseconds $SettleMs
+    }
+
+    Write-Host "==> done" -ForegroundColor DarkGray
+    return
+}
+
+if ($Mode -eq 'discriminate') {
+    Write-Host "==> what channel 1 objects to, a fresh session per candidate" -ForegroundColor Cyan
+    Write-Host "    16 bytes is the length of the encrypted control, so only the wrapping differs" -ForegroundColor DarkGray
+
+    foreach ($candidate in $discriminateCandidates) {
+        $handle = Open-HealthySession
+        try {
+            $null = Try-Send $handle 1 $candidate.Cmd $candidate.Body `
+                $candidate.Encrypt $candidate.Name
+        } finally {
+            [XmRdt]::Close($handle)
+        }
+
+        Start-Sleep -Milliseconds $SettleMs
+    }
+
+    Write-Host "==> done" -ForegroundColor DarkGray
+    return
+}
+
 if ($Mode -eq 'isolate') {
     Write-Host "==> device info (0x110), a fresh session per candidate" -ForegroundColor Cyan
     Write-Host "    each line is measured against a camera that has heard nothing else" -ForegroundColor DarkGray
 
     foreach ($candidate in $channelCandidates) {
-        $handle = Open-Session
+        $handle = Open-HealthySession
         try {
-            $alive = Try-Send $handle $candidate.Channel $candidate.Cmd $candidate.Body `
+            $outcome = Try-Send $handle $candidate.Channel $candidate.Cmd $candidate.Body `
                 $candidate.Encrypt $candidate.Name
 
             # A session that survived the message is worth watching a moment
             # longer: a file listing takes longer to produce than a reply does.
-            if ($alive) {
+            if ($outcome -eq 'alive') {
                 Start-Sleep -Milliseconds $WaitMs
                 $answers = Read-Answers $handle
                 foreach ($reply in $answers.Replies) {
