@@ -4,8 +4,10 @@
 #include <imgui_impl_dx11.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <exception>
 #include <format>
 
 #include "app/App.h"
@@ -71,6 +73,20 @@ std::string playbackTime(int64_t milliseconds) {
                            seconds % 60);
     }
     return std::format("{}:{:02}", seconds / 60, seconds % 60);
+}
+
+std::string localRecordingTime(int64_t utcMilliseconds) {
+    const auto time = std::chrono::system_clock::time_point{
+        std::chrono::duration_cast<std::chrono::system_clock::duration>(
+            std::chrono::milliseconds{utcMilliseconds})};
+    try {
+        return std::format(
+            "{:%Y-%m-%d %H:%M:%S %Z}",
+            std::chrono::zoned_time{std::chrono::current_zone(), time});
+    } catch (const std::exception&) {
+        return std::format("{:%Y-%m-%d %H:%M:%S} UTC",
+                           std::chrono::floor<std::chrono::seconds>(time));
+    }
 }
 
 void handleKeys(App& app, size_t trackCount) {
@@ -192,6 +208,12 @@ bool drawToolbar(App& app) {
         if (!status.fileName.empty()) {
             ImGui::SameLine();
             ImGui::TextColored(theme::kMuted, "%s", status.fileName.c_str());
+        }
+
+        if (status.recordingStartUtcMs >= 0) {
+            const std::string localTime =
+                localRecordingTime(status.recordingStartUtcMs + shownMs);
+            ImGui::TextColored(theme::kMuted, "Recorded time: %s", localTime.c_str());
         }
 
         const std::string& openError = app.playbackError();

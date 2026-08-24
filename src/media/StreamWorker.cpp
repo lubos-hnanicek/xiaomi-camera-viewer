@@ -546,9 +546,10 @@ void StreamWorker::serviceRecording(const uint8_t* data, const XmbFrame& meta) {
         const AudioTrack audio{audioCodec_.load(std::memory_order_acquire),
                                audioRate_.load(std::memory_order_acquire), 1};
 
+        const auto recordingStartUtc = std::chrono::system_clock::now();
         std::string error;
-        if (!recorder_.open(directory / recordingFileName(), meta.codec, width, height, data,
-                            meta.size, audio, error)) {
+        if (!recorder_.open(directory / recordingFileName(recordingStartUtc), recordingStartUtc,
+                            meta.codec, width, height, data, meta.size, audio, error)) {
             // Whatever went wrong would go wrong again on the next keyframe, so
             // the request is dropped rather than retried into a loop of errors.
             XV_ERROR("{}: cannot record: {}", camera_.label(), error);
@@ -628,12 +629,13 @@ void StreamWorker::publishRecordingStatus() {
     status_.recordedMs = recorder_.durationMs();
 }
 
-std::string StreamWorker::recordingFileName() const {
+std::string StreamWorker::recordingFileName(
+    std::chrono::system_clock::time_point recordingStartUtc) const {
     // Local time, because a recording is looked for by when it was made and the
     // person looking is in their own timezone. UTC if the zone database is not
     // there to ask, which is better than no file at all.
     std::string stamp;
-    const auto now = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
+    const auto now = std::chrono::floor<std::chrono::seconds>(recordingStartUtc);
     try {
         stamp = std::format("{:%Y-%m-%d %H-%M-%S}",
                             std::chrono::zoned_time{std::chrono::current_zone(), now});

@@ -48,6 +48,7 @@ public:
         bool failed = false;
         int64_t positionMs = 0;
         int64_t durationMs = 0;
+        int64_t recordingStartUtcMs = -1;
         int selectedAudio = -1; // option index, -1 for mute
         std::string fileName;
         std::string error;
@@ -122,6 +123,7 @@ private:
     bool prerolling_ = false;
     int64_t basePositionMs_ = 0;
     int64_t durationMs_ = 0;
+    int64_t recordingStartUtcMs_ = -1;
     size_t prerollLeft_ = 0;
     uint32_t prerollEpoch_ = 0;
     std::chrono::steady_clock::time_point baseTime_{};

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -56,7 +57,8 @@ public:
     MatroskaMuxer& operator=(const MatroskaMuxer&) = delete;
 
     bool open(const std::filesystem::path& path, const std::vector<MatroskaVideoTrack>& video,
-              const std::vector<MatroskaAudioTrack>& audio, std::string& error);
+              const std::vector<MatroskaAudioTrack>& audio,
+              std::chrono::system_clock::time_point recordingStartUtc, std::string& error);
 
     bool writeVideo(size_t track, const uint8_t* data, size_t size, int64_t ptsMs, bool keyframe,
                     std::string& error);

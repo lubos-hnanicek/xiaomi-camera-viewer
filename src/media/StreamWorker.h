@@ -150,7 +150,8 @@ private:
     void abandonRecording(const std::string& error);
     void finishRecording();
     void publishRecordingStatus();
-    [[nodiscard]] std::string recordingFileName() const;
+    [[nodiscard]] std::string recordingFileName(
+        std::chrono::system_clock::time_point recordingStartUtc) const;
 
     CameraConfig camera_;
     AccountConfig account_;

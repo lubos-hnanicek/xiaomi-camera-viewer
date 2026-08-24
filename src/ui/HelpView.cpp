@@ -205,8 +205,9 @@ void drawRecordingAndSound() {
     paragraph("File -> Open recording opens the built-in player. It shows every video track in a "
               "synchronised grid, can focus one track by double-clicking it, and plays one selected "
               "camera microphone at a time. The timeline seeks to the previous keyframe when the "
-              "slider is released; arrow keys still jump five seconds. Returning to the live grid "
-              "reconnects the cameras.");
+              "slider is released; arrow keys still jump five seconds. New recordings also show "
+              "their UTC recording time converted to this PC's local time zone. Returning to the "
+              "live grid reconnects the cameras.");
 
     paragraph("Three things follow from recording the stream rather than a re-encode of it:");
     bullet("A file can only begin on a keyframe, so recording starts a second or two after being "

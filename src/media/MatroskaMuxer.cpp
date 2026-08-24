@@ -50,6 +50,14 @@ std::string utf8Of(const std::filesystem::path& path) {
     return std::string(reinterpret_cast<const char*>(text.data()), text.size());
 }
 
+std::string utcTimestamp(std::chrono::system_clock::time_point time) {
+    const auto milliseconds = std::chrono::floor<std::chrono::milliseconds>(time);
+    const auto seconds = std::chrono::floor<std::chrono::seconds>(milliseconds);
+    const auto fraction =
+        std::chrono::duration_cast<std::chrono::milliseconds>(milliseconds - seconds).count();
+    return std::format("{:%Y-%m-%dT%H:%M:%S}.{:03}Z", seconds, fraction);
+}
+
 void setTrackMetadata(AVStream* stream, const std::string& title, bool defaultTrack) {
     if (!title.empty()) {
         av_dict_set(&stream->metadata, "title", title.c_str(), 0);
@@ -121,7 +129,9 @@ MatroskaMuxer::~MatroskaMuxer() {
 
 bool MatroskaMuxer::open(const std::filesystem::path& path,
                          const std::vector<MatroskaVideoTrack>& video,
-                         const std::vector<MatroskaAudioTrack>& audio, std::string& error) {
+                         const std::vector<MatroskaAudioTrack>& audio,
+                         std::chrono::system_clock::time_point recordingStartUtc,
+                         std::string& error) {
     close();
 
     if (video.empty()) {
@@ -137,6 +147,18 @@ bool MatroskaMuxer::open(const std::filesystem::path& path,
         rc < 0) {
         error = "could not set up the Matroska muxer: " + avError(rc);
         format_ = nullptr;
+        return false;
+    }
+
+    const std::string creationTime = utcTimestamp(recordingStartUtc);
+    const std::string startUtcMs = std::to_string(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            recordingStartUtc.time_since_epoch())
+            .count());
+    if (av_dict_set(&format_->metadata, "creation_time", creationTime.c_str(), 0) < 0 ||
+        av_dict_set(&format_->metadata, "xv_recording_start_utc_ms", startUtcMs.c_str(), 0) < 0) {
+        error = "could not store the recording start time";
+        close();
         return false;
     }
 

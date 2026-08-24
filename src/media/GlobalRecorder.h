@@ -152,7 +152,8 @@ private:
     void publishProgress();
     [[nodiscard]] std::string preparationTimeoutError() const;
     [[nodiscard]] int64_t elapsedNow() const;
-    [[nodiscard]] std::string fileName() const;
+    [[nodiscard]] std::string fileName(
+        std::chrono::system_clock::time_point recordingStartUtc) const;
 
     static constexpr size_t kMaxQueueBytes = 64 * 1024 * 1024;
     static constexpr size_t kMaxPrerollBytes = 16 * 1024 * 1024;
@@ -170,6 +171,7 @@ private:
     std::atomic<bool> active_{false};
     std::atomic<bool> accepting_{false};
     std::chrono::steady_clock::time_point started_{};
+    std::chrono::system_clock::time_point startedUtc_{};
     std::filesystem::path path_;
 
     std::mutex queueMutex_;

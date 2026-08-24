@@ -49,8 +49,9 @@ bool GlobalRecorder::start(const std::filesystem::path& directory,
         }
     }
 
-    path_ = directory / fileName();
+    startedUtc_ = std::chrono::system_clock::now();
     started_ = std::chrono::steady_clock::now();
+    path_ = directory / fileName(startedUtc_);
 
     videos_.clear();
     sources_.clear();
@@ -452,7 +453,7 @@ bool GlobalRecorder::openFile(std::string& error) {
             MatroskaAudioTrack{source.audio, source.title, audioTracks.empty()});
     }
 
-    if (!muxer_.open(path_, videoTracks, audioTracks, error)) {
+    if (!muxer_.open(path_, videoTracks, audioTracks, startedUtc_, error)) {
         return false;
     }
 
@@ -654,9 +655,10 @@ int64_t GlobalRecorder::elapsedNow() const {
         .count();
 }
 
-std::string GlobalRecorder::fileName() const {
+std::string GlobalRecorder::fileName(
+    std::chrono::system_clock::time_point recordingStartUtc) const {
     std::string stamp;
-    const auto now = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
+    const auto now = std::chrono::floor<std::chrono::seconds>(recordingStartUtc);
     try {
         stamp = std::format("{:%Y-%m-%d %H-%M-%S}",
                             std::chrono::zoned_time{std::chrono::current_zone(), now});

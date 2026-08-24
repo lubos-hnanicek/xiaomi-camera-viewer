@@ -191,8 +191,10 @@ real-time gap, while cameras that become live later wait for the next recording.
 **File -> Open recording**, or `Ctrl+O`, opens local MKV recordings in the
 built-in player. Every video track is shown in a synchronized grid; double-click
 a tile or press `F` to focus it. The audio menu plays one camera microphone at a
-time or mutes sound. `Space` pauses, the arrow keys seek five seconds, and
-returning to the live grid reconnects the cameras.
+time or mutes sound. New recordings store their UTC start time, which the player
+shows in the PC's current local time zone as playback moves. `Space` pauses, the
+arrow keys seek five seconds, and returning to the live grid reconnects the
+cameras.
 
 Three consequences of recording the stream rather than a re-encode of it. A file
 can only begin on a keyframe, so recording starts within a second or two of

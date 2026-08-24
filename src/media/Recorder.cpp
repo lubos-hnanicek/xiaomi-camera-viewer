@@ -11,8 +11,9 @@ Recorder::~Recorder() {
     close();
 }
 
-bool Recorder::open(const std::filesystem::path& path, int codec, int width, int height,
-                    const uint8_t* keyframe, size_t size, const AudioTrack& audio,
+bool Recorder::open(const std::filesystem::path& path,
+                    std::chrono::system_clock::time_point recordingStartUtc, int codec, int width,
+                    int height, const uint8_t* keyframe, size_t size, const AudioTrack& audio,
                     std::string& error) {
     close();
 
@@ -31,7 +32,7 @@ bool Recorder::open(const std::filesystem::path& path, int codec, int width, int
                 audio::codecName(audio.codec));
     }
 
-    if (!muxer_.open(path, {video}, audioTracks, error)) {
+    if (!muxer_.open(path, {video}, audioTracks, recordingStartUtc, error)) {
         return false;
     }
 

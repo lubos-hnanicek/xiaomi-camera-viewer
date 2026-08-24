@@ -36,8 +36,10 @@ public:
     // `audio` describes the second track, and has to be known now rather than
     // when the first audio packet turns up: a Matroska header lists its tracks
     // and cannot grow one later.
-    bool open(const std::filesystem::path& path, int codec, int width, int height,
-              const uint8_t* keyframe, size_t size, const AudioTrack& audio, std::string& error);
+    bool open(const std::filesystem::path& path,
+              std::chrono::system_clock::time_point recordingStartUtc, int codec, int width,
+              int height, const uint8_t* keyframe, size_t size, const AudioTrack& audio,
+              std::string& error);
 
     // Appends one access unit. Fails only on a write error, which ends the
     // recording: a file that silently loses its middle is worse than a short one.

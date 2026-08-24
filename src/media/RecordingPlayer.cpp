@@ -1,9 +1,11 @@
 #include "media/RecordingPlayer.h"
 
 #include <algorithm>
+#include <charconv>
 #include <exception>
 #include <format>
 #include <limits>
+#include <string_view>
 
 #include "app/Log.h"
 
@@ -29,6 +31,22 @@ std::string avError(int code) {
 std::string utf8Of(const std::filesystem::path& path) {
     const std::u8string text = path.u8string();
     return std::string(reinterpret_cast<const char*>(text.data()), text.size());
+}
+
+int64_t recordingStartUtcMs(const AVFormatContext* format) {
+    if (const AVDictionaryEntry* stored =
+            av_dict_get(format->metadata, "xv_recording_start_utc_ms", nullptr, 0);
+        stored != nullptr && stored->value != nullptr) {
+        const std::string_view text(stored->value);
+        int64_t value = -1;
+        const auto [end, error] =
+            std::from_chars(text.data(), text.data() + text.size(), value);
+        if (error == std::errc{} && end == text.data() + text.size()) {
+            return value;
+        }
+    }
+
+    return -1;
 }
 
 std::string trackTitle(const AVStream* stream, const char* kind, size_t number) {
@@ -68,6 +86,7 @@ bool RecordingPlayer::open(const std::filesystem::path& path, D3D11Context& gpu,
     path_ = path;
     gpu_ = &gpu;
     audio_ = &audio;
+    recordingStartUtcMs_ = recordingStartUtcMs(format_);
     durationMs_ = format_->duration == AV_NOPTS_VALUE
                       ? 0
                       : std::max<int64_t>(0, av_rescale_q(format_->duration,
@@ -201,6 +220,7 @@ void RecordingPlayer::close() {
     eof_ = false;
     basePositionMs_ = 0;
     durationMs_ = 0;
+    recordingStartUtcMs_ = -1;
     seekRequest_.reset();
     requestedAudioOption_ = -1;
     appliedAudioOption_.store(-2, std::memory_order_release);
@@ -294,6 +314,7 @@ RecordingPlayer::Status RecordingPlayer::status() const {
         .failed = format_ != nullptr && !workerAlive_,
         .positionMs = positionLocked(std::chrono::steady_clock::now()),
         .durationMs = durationMs_,
+        .recordingStartUtcMs = recordingStartUtcMs_,
         .selectedAudio = requestedAudioOption_,
         .fileName = path_.filename().string(),
         .error = error_,
