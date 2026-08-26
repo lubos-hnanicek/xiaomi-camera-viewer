@@ -96,10 +96,11 @@ type TapMessage struct {
 }
 
 // tapDepth bounds what the tap remembers per channel. A recording index runs to
-// a couple of hundred messages and has to be reassembled from all of them, so
-// this is deep enough to hold one whole transfer between drains; 64 was not,
-// and losing the oldest message of a stream costs the entire stream.
-const tapDepth = 4096
+// a couple of hundred messages; a second-lens MP4 is several thousand UDP
+// datagrams. The pump drains every 20ms, but a LAN burst can fill the ring
+// before that, and losing one chunk costs the whole file. 64 was not enough
+// for an index; 4096 was not enough for the file.
+const tapDepth = 16384
 
 // Tap hands back what arrived on the channels this transport does not open,
 // oldest first, and forgets it. Draining on read is what lets a probe attribute
@@ -241,7 +242,7 @@ func (c *Conn) worker() {
 
 	var keepaliveTS time.Time // TCP only
 
-	buf := make([]byte, 1200)
+	buf := make([]byte, maxCS2Frame)
 
 	for {
 		n, err := c.Conn.Read(buf)
@@ -589,6 +590,14 @@ type tcpConn struct {
 	*net.TCPConn
 	rd *bufio.Reader
 }
+
+// maxCS2Frame is the TCP wrapper's uint16 length, which is also a safe UDP
+// datagram bound. The worker used to read into 1200 bytes, which is a typical
+// UDP packet but not a TCP one: a command-1 MP4 chunk over TCP is several
+// kilobytes, and Read then returned "tcp buffer too small" and tore the
+// session down. The empty ack had already been delivered, so FetchRecording
+// waited out the timeout and reported the file missing.
+const maxCS2Frame = 65535
 
 func (c *tcpConn) Read(p []byte) (n int, err error) {
 	tmp := make([]byte, 8)

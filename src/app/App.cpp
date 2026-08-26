@@ -650,7 +650,7 @@ void App::frame() {
     // the camera by activating a button, so it stands down while the grid is up.
     // Every other screen is a form, where tabbing between fields is the point.
     ImGuiIO& io = ImGui::GetIO();
-    if (screen_ == Screen::Grid || screen_ == Screen::Playback) {
+    if (screen_ == Screen::Grid || screen_ == Screen::Playback || screen_ == Screen::SdCard) {
         io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
     } else {
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
@@ -683,6 +683,7 @@ void App::frame() {
     case Screen::Grid: drawGridView(*this); break;
     case Screen::Settings: drawSettingsView(*this); break;
     case Screen::Playback: drawPlaybackView(*this); break;
+    case Screen::SdCard: drawSdCardView(*this); break;
     }
 
     ImGui::End();
@@ -749,6 +750,10 @@ void App::handleGlobalKeys() {
         ImGui::IsKeyChordPressed(ImGuiMod_Shift | ImGuiKey_R)) {
         toggleGlobalRecording();
     }
+    if (screen_ == Screen::SdCard && !ImGui::GetIO().WantTextInput &&
+        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        closeSdPlayback();
+    }
 }
 
 void App::drawMenuBar() {
@@ -785,33 +790,56 @@ void App::drawMenuBar() {
     if (signedIn_) {
         if (ImGui::BeginMenu("View")) {
             if (ImGui::MenuItem("Live grid", nullptr, screen_ == Screen::Grid)) {
-                if (screen_ == Screen::Playback) {
-                    closePlayback();
-                }
+                leavePlayerScreens();
                 screen_ = Screen::Grid;
             }
             if (ImGui::MenuItem("Cameras", nullptr, screen_ == Screen::Cameras)) {
-                if (screen_ == Screen::Playback) {
-                    closePlayback();
-                }
+                leavePlayerScreens();
                 screen_ = Screen::Cameras;
             }
             if (ImGui::MenuItem("Settings", nullptr, screen_ == Screen::Settings)) {
-                if (screen_ == Screen::Playback) {
-                    closePlayback();
-                }
+                leavePlayerScreens();
                 screen_ = Screen::Settings;
             }
             if (ImGui::MenuItem("Playback", nullptr, screen_ == Screen::Playback,
                                 playback_.status().open || !playbackError_.empty())) {
+                leavePlayerScreens();
                 screen_ = Screen::Playback;
             }
+
+            // One camera's card at a time, chosen here because the card belongs
+            // to a camera rather than to the app. A dual-lens CW500 is two live
+            // tiles over one card; only the primary picture can be played, so
+            // the second tile is not listed.
+            if (ImGui::BeginMenu("Camera SD card", !config_.cameras.empty())) {
+                for (size_t i = 0; i < config_.cameras.size(); ++i) {
+                    const CameraConfig& camera = config_.cameras[i];
+                    if (isDualLens(camera.model) && !camera.channel.empty() &&
+                        camera.channel != "0") {
+                        continue;
+                    }
+                    const bool supported = sdPlaybackSupported(camera);
+                    if (ImGui::MenuItem(camera.label().c_str(), nullptr, false, supported)) {
+                        openSdPlayback(i);
+                    }
+                    if (!supported) {
+                        ImGui::SetItemTooltip(
+                            "This model's card has not been worked out yet. Only the "
+                            "CW400 and CW500 answer the requests this build sends.");
+                    }
+                }
+                ImGui::EndMenu();
+            }
+
             ImGui::Separator();
             ImGui::MenuItem("Log", nullptr, &showLogWindow_);
             ImGui::EndMenu();
         }
 
-        if (ImGui::BeginMenu("Streams", screen_ != Screen::Playback)) {
+        // Neither player screen has live streams to act on: both stopped them to
+        // get the camera to themselves.
+        if (ImGui::BeginMenu("Streams",
+                             screen_ != Screen::Playback && screen_ != Screen::SdCard)) {
             // "Restart", because it rebuilds the tiles from the camera list and
             // reconnects whatever is already running along with whatever is not.
             if (ImGui::MenuItem("Restart all")) {
@@ -1497,6 +1525,13 @@ void App::openRecordingsFolder() const {
 }
 
 void App::openRecordingDialog() {
+    // Ctrl+O reaches here from the SD card screen too, and that screen holds a
+    // session open. Left running it would go on pulling video from a camera
+    // nothing is showing.
+    if (screen_ == Screen::SdCard) {
+        closeSdPlayback(false);
+    }
+
     const auto directory = config_.recordingsDirectory();
     std::error_code ignored;
     std::filesystem::create_directories(directory, ignored);
@@ -1554,6 +1589,105 @@ void App::closePlayback(bool resumeLive) {
         screen_ = signedIn_ ? (config_.cameras.empty() ? Screen::Cameras : Screen::Grid)
                             : Screen::Login;
     }
+}
+
+// leavePlayerScreens gives up whatever a player screen was holding before the
+// menu moves somewhere else. Both of them suspended the live grid to get here,
+// and both have to hand it back; the screen itself is chosen by the caller,
+// which is why neither is asked to resume.
+void App::leavePlayerScreens() {
+    if (screen_ == Screen::Playback) {
+        closePlayback(false);
+    }
+    if (screen_ == Screen::SdCard) {
+        closeSdPlayback(false);
+    }
+
+    // Whichever it was, the live grid was stopped to make room for it.
+    if (signedIn_ && streams_.empty() && !config_.cameras.empty()) {
+        startStreams();
+    }
+}
+
+bool App::sdPlaybackSupported(const CameraConfig& camera) {
+    // The catalogue and the playback command were recovered from the firmware
+    // of these two boards, and the request shapes are not guesses that would
+    // degrade gracefully elsewhere: a model that reads them differently answers
+    // nothing at all. Better to say a camera is not supported than to offer a
+    // screen that will sit empty.
+    //
+    // A dual-lens CW500 writes both pictures to the card, but every local open
+    // looks the time up in that channel's index. Channel 1's index is empty, so
+    // the second tile has nothing this screen can play.
+    if (isDualLens(camera.model) && !camera.channel.empty() && camera.channel != "0") {
+        return false;
+    }
+    return camera.model.find("hlc8a") != std::string::npos ||
+           camera.model.find("500dh") != std::string::npos;
+}
+
+void App::openSdPlayback(size_t cameraIndex) {
+    if (cameraIndex >= config_.cameras.size()) {
+        return;
+    }
+
+    const CameraConfig camera = config_.cameras[cameraIndex];
+
+    if (!sdPlaybackSupported(camera)) {
+        return;
+    }
+
+    if (globalRecorder_.active()) {
+        const int answer = ::MessageBoxA(
+            window_,
+            "A recording is in progress. Opening a camera's card stops every live "
+            "stream, which ends it. Continue?",
+            "Recording in progress", MB_OKCANCEL | MB_ICONWARNING);
+        if (answer != IDOK) {
+            return;
+        }
+    }
+
+    sdPlayer_.close();
+
+    // One session per camera. The grid is streaming this camera already, and a
+    // second connection would be arguing with the first over the same
+    // peer-to-peer link.
+    if (!sdSuspendedLive_) {
+        stopStreams();
+        sdSuspendedLive_ = true;
+    }
+
+    XV_INFO("opening the card on {}", camera.label());
+    sdPlayer_.open(gpu_, camera, config_.account);
+    screen_ = Screen::SdCard;
+}
+
+void App::closeSdPlayback(bool resumeLive) {
+    sdPlayer_.mute();
+    sdPlayer_.close();
+
+    const bool shouldResume = sdSuspendedLive_;
+    sdSuspendedLive_ = false;
+
+    if (resumeLive && signedIn_ && shouldResume) {
+        startStreams();
+        screen_ = config_.cameras.empty() ? Screen::Cameras : Screen::Grid;
+    } else if (resumeLive) {
+        screen_ = signedIn_ ? (config_.cameras.empty() ? Screen::Cameras : Screen::Grid)
+                            : Screen::Login;
+    }
+}
+
+void App::toggleSdListening() {
+    if (sdPlayer_.listening()) {
+        sdPlayer_.mute();
+        return;
+    }
+
+    // Only one thing may hold the speaker, so whatever had it gives it up.
+    muteAll();
+    sdPlayer_.listen(&audio_);
 }
 
 void App::loadSettingsFor(CameraStream& stream) {

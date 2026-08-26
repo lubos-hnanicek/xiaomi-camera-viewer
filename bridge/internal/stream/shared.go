@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/spec8472/xiaomi-viewer/bridge/internal/miss"
@@ -70,9 +71,13 @@ type sharedPhysical struct {
 	upgradeMu sync.Mutex
 	sessions  map[*Session]int
 	quality   [2]string
-	initial   int
-	dual      bool
-	closed    bool
+	// The channel string each lane was asked for, kept verbatim rather than
+	// rebuilt from the lane number: a model may name its lenses in a way this
+	// does not know, and only the caller's own words are certain to work.
+	channel [2]string
+	initial int
+	dual    bool
+	closed  bool
 
 	// The tag the initial lens's pictures carry, learnt from the stream rather
 	// than assumed, and the anchor everything else is told apart from.
@@ -89,6 +94,7 @@ type sharedPhysical struct {
 	ended          chan struct{}
 	endOnce        sync.Once
 	shutdownOnce   sync.Once
+	rdtReset       atomic.Bool
 
 	headerMu  sync.Mutex
 	headerLog []headerSample
@@ -173,6 +179,7 @@ func newSharedPhysical(
 		ended:         make(chan struct{}),
 	}
 	physical.quality[lane] = cfg.Quality
+	physical.channel[lane] = cfg.Channel
 
 	session := physical.newSession(cfg, lane)
 	physical.sessions[session] = lane
@@ -183,14 +190,65 @@ func newSharedPhysical(
 func (p *sharedPhysical) start() {
 	go p.reader()
 	go p.commandReader()
+
+	// One pump for the connection, not one per session: the tap is a single
+	// queue, so two pumps would each take half a transfer's chunks and neither
+	// could rebuild anything.
+	go rdtPump(p.client, p.ended, p.deliverRDT, p.scrapePlain, p.noteTap, &p.rdtReset)
+}
+
+// deliverRDT hands the pump's output to every session on this connection.
+//
+// A copy each, rather than the first to ask: the two sessions are two tiles of
+// one camera, and a card is a property of the camera, so both are entitled to
+// the answer.
+func (p *sharedPhysical) deliverRDT(msgs []rdtMessage, lines []string) {
+	p.mu.Lock()
+	sessions := make([]*Session, 0, len(p.sessions))
+	for session := range p.sessions {
+		sessions = append(sessions, session)
+	}
+	p.mu.Unlock()
+
+	for _, session := range sessions {
+		session.deliverRDT(msgs, lines)
+	}
+}
+
+func (p *sharedPhysical) scrapePlain(plain []byte) {
+	p.mu.Lock()
+	sessions := make([]*Session, 0, len(p.sessions))
+	for session := range p.sessions {
+		sessions = append(sessions, session)
+	}
+	p.mu.Unlock()
+	for _, session := range sessions {
+		session.scrapePlain(plain)
+	}
+}
+
+func (p *sharedPhysical) noteTap(raw []byte) {
+	p.mu.Lock()
+	sessions := make([]*Session, 0, len(p.sessions))
+	for session := range p.sessions {
+		sessions = append(sessions, session)
+	}
+	p.mu.Unlock()
+	for _, session := range sessions {
+		session.noteTap(raw)
+	}
 }
 
 func (p *sharedPhysical) newSession(cfg Config, lane int) *Session {
 	return &Session{
 		shared:     p,
 		wantAudio:  cfg.Audio,
+		channel:    cfg.Channel,
+		quality:    cfg.Quality,
 		frames:     make(chan *Frame, queueDepth),
 		done:       make(chan struct{}),
+		rdtFeed:    make(chan rdtMessage, feedDepth),
+		replyFeed:  make(chan reply, feedDepth),
 		Protocol:   p.client.Protocol(),
 		RemoteAddr: p.client.RemoteAddr().String(),
 	}
@@ -246,6 +304,7 @@ func (p *sharedPhysical) attach(cfg Config) (*Session, error) {
 	oldQuality := p.quality[lane]
 	oldWantAudio := p.wantAudio
 	p.quality[lane] = cfg.Quality
+	p.channel[lane] = cfg.Channel
 	p.wantAudio = p.anyWantAudioLocked()
 
 	if cfg.Audio && !oldWantAudio {
@@ -280,6 +339,29 @@ func (p *sharedPhysical) attach(cfg Config) (*Session, error) {
 	}
 
 	return session, nil
+}
+
+// resumeLive asks for the live picture again after playback, restoring whatever
+// combination of lenses was streaming rather than only the one that asked.
+//
+// Both tiles of a dual-lens camera share this connection, so a session that
+// left playback for itself alone would leave the other one dark.
+func (p *sharedPhysical) resumeLive() error {
+	p.mu.Lock()
+	dual, initial := p.dual, p.initial
+	quality, channel, audio := p.quality, p.channel, p.wantAudio
+	p.mu.Unlock()
+
+	var err error
+	if dual {
+		err = p.client.StartMediaBoth(quality[0], quality[1], audio)
+	} else {
+		err = p.client.StartMedia(channel[initial], quality[initial], audio)
+	}
+	if err != nil {
+		return fmt.Errorf("stream: ask for the live picture again: %w", err)
+	}
+	return nil
 }
 
 func (p *sharedPhysical) reader() {

@@ -15,6 +15,7 @@
 #include "media/AudioPlayer.h"
 #include "media/GlobalRecorder.h"
 #include "media/RecordingPlayer.h"
+#include "media/SdPlayer.h"
 #include "media/StreamWorker.h"
 #include "render/D3D11Context.h"
 #include "render/VideoFrameTexture.h"
@@ -77,6 +78,7 @@ enum class Screen {
     Grid,
     Settings,
     Playback,
+    SdCard,
 };
 
 // A device discovered on the account, before it becomes a configured camera.
@@ -135,6 +137,22 @@ public:
     [[nodiscard]] bool globalRecordingAvailable() const;
     [[nodiscard]] bool globallyRecording(const CameraStream& stream) const;
     void openRecordingsFolder() const;
+
+    // Plays what a camera holds on its own SD card.
+    //
+    // The live grid is stopped first. A camera serves one peer-to-peer session
+    // comfortably, and a second one opened while the grid is streaming the same
+    // camera would be competing with it for the same connection.
+    void openSdPlayback(size_t cameraIndex);
+    void closeSdPlayback(bool resumeLive = true);
+    SdPlayer& sdPlayer() { return sdPlayer_; }
+    VideoFrameTexture& sdTexture() { return sdTexture_; }
+    // Whether a camera can have its card opened: it has to be one this build
+    // knows how to ask, which so far means the CW400 and the CW500's main lens.
+    // A dual-lens camera's second tile is not offered; that picture is on the
+    // card and the camera will not open it locally.
+    [[nodiscard]] static bool sdPlaybackSupported(const CameraConfig& camera);
+    void toggleSdListening();
 
     void openRecordingDialog();
     void closePlayback(bool resumeLive = true);
@@ -211,6 +229,9 @@ private:
 
     void drawMenuBar();
 
+    // Closes whichever player screen is up, so the menu can move elsewhere.
+    void leavePlayerScreens();
+
     // The caption the app draws for itself: the three buttons, and the strip
     // beside them that behaves like a title bar. Laid out while the menu bar is
     // drawn and read back when Windows asks where a point landed.
@@ -253,6 +274,8 @@ private:
     AudioPlayer audio_;
     GlobalRecorder globalRecorder_;
     RecordingPlayer playback_;
+    SdPlayer sdPlayer_;
+    VideoFrameTexture sdTexture_;
 
     std::vector<std::unique_ptr<CameraStream>> streams_;
     std::vector<DiscoveredDevice> devices_;
@@ -264,6 +287,7 @@ private:
     int playbackSelected_ = 0;
     bool playbackFocused_ = false;
     bool playbackSuspendedLive_ = false;
+    bool sdSuspendedLive_ = false;
     std::string playbackError_;
     // The help page the menu asked for, or null to leave the window where it was.
     const char* helpTab_ = nullptr;

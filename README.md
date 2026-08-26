@@ -27,62 +27,43 @@ The pictures in the tiles are stand-ins rather than real camera output.
 - Camera settings driven by the device's own MIoT specification: night vision,
   HDR, image flip, motion detection and sensitivity, tracking, fill light,
   siren, indicator LED, recording mode and SD card status
+- Playback of the footage on a camera's own SD card, browsed by day, hour and
+  clip, on the CW400 and the CW500's main lens
 - Both lenses of a dual-lens CW500 as independent tiles over one camera session
 - Automatic reconnection with backoff when a camera drops the session
 - Sign-in handles captchas and two-step verification; the resulting token is
   stored encrypted with your Windows account key
 
-Out of scope for now: playback of recordings from the camera's SD card, and
-two-way audio. Talking back needs an encoder and the return channel worked out;
-listening does not, and is implemented.
+Out of scope for now: two-way audio. Talking back needs an encoder and the
+return channel worked out; listening does not, and is implemented.
 
-Camera SD-card playback is out of scope because the cameras will not discuss it,
-not because
-nobody has written the UI. MISS names a playback request, response and speed
-command (0x10D, 0x10E, 0x10F); no payload for any of them is documented, no
-public implementation sends one, and a CW400 and a CW500 answered fourteen
-candidate payloads with complete silence -- no reply, no error, no change in the
-media flow, and nothing on the two transport channels this bridge does not open.
-Device info (0x110) answers on the same session, so the path is sound and the
-command really is being ignored. Since the camera never rejects anything, a
-wrong payload and an unsupported command look identical, which leaves nothing to
-search against. `scripts/probe-playback.ps1` is that experiment, kept so the
-next attempt starts from the evidence rather than repeating it.
+Playback from the camera's SD card was out of scope for a long time, and the
+reasoning was wrong. MISS names a playback request and response (0x10D, 0x10E),
+no payload for either is documented, no public implementation sends one, and a
+CW400 and a CW500 answered fourteen candidate payloads with complete silence.
+Since the cameras never reject anything, a wrong payload and an unsupported
+command looked identical, which left nothing to search against.
 
-There is one thread left to pull. Xiaomi's plugin SDK offers a camera plugin two
-ways to reach the device: MISS commands, which is what this bridge sends, and a
-separate RDT path with its own send and receive calls and a per-device switch
-named `setCurrentDeviceUseFixedRdtChannel`. RDT is the reliable file-transfer
-channel of the peer-to-peer stack CS2 is modelled on, and a recording is a file.
-CS2 multiplexes four channels over one connection: this bridge opens 0 for
-commands and 2 for media, go2rtc's talkback writes speaker audio on 3, and
-nothing anywhere writes on 1.
+What broke the deadlock was reading the firmware instead of guessing at it.
+IMILAB, who make these boards for Xiaomi, publish their images; the handler for
+0x10D is in there, and it names every field it insists on. The silence was a
+request missing a field, not a camera refusing to discuss playback -- the
+firmware abandons a request it cannot parse without answering, so an incomplete
+request and an unsupported command really do look the same from outside.
 
-Channel 1 is idle after all. It takes whatever is sent to it -- encrypted or
-plaintext, a real command id or nonsense -- without answering, without an error
-and without disturbing the video, which is exactly what a channel nobody is
-listening on looks like. Channel 3 behaves the same way. So the reason a
-playback request goes unanswered is not that the answer arrives somewhere this
-bridge does not look, and that was the one explanation the earlier evidence could
-not rule out.
+Two discoveries followed from that. A playback request is answered only for a
+clip's exact first second, which is why every earlier candidate would have
+failed even with the right fields: those instants are arbitrary and are written
+down in only one place. That place is the second discovery -- a catalogue of
+every clip on the card, which the camera sends over RDT, the file-transfer
+channel this bridge had never opened. Channel 1 had looked idle because it
+answers only what it recognises, and it wants its own framing rather than a MISS
+command.
 
-Getting there needed a control that is worth writing down, because without it the
-opposite conclusion looks solid. A four-byte data message ends the session
-immediately, and the first plaintext candidate was four bytes: a bare command id
-with no body. That reads as a camera rejecting unencrypted data on channel 1
-until the same four bytes are sent on the command channel, which the app uses
-constantly, and that session dies too. Sixteen bytes of the same plaintext is
-then accepted on every channel and ignored on every channel. The effect was the
-length and had nothing to do with the channel or the encryption. Nothing here
-sends anything that short -- every command is encrypted and so is at least
-sixteen bytes -- so this is a fact about the cameras rather than a bug to fix.
-
-`scripts/probe-rdt.ps1` is that experiment. It runs one candidate per session and
-only on a session already seen to be carrying video, because a camera that has
-hung up ignores discovery for a while afterwards, then starts refusing the login
-outright with code 3, and a result measured on a session that was already dead
-describes the disconnection rather than the candidate. `-Mode shortness` is the
-control.
+`scripts/probe-rdt.ps1` and `scripts/probe-playback.ps1` are the experiments that
+worked it out, kept because they are how the next model will be worked out.
+`scripts/probe-sdcard.ps1` is the different thing: it exercises the finished API
+against a camera, and is the check that what was learnt survived into the code.
 
 ## Requirements
 
@@ -211,6 +192,44 @@ time or mutes sound. New recordings store their UTC start time, which the player
 shows in the PC's current local time zone as playback moves. `Space` pauses, the
 arrow keys seek five seconds, and returning to the live grid reconnects the
 cameras.
+
+## Playing a camera's SD card
+
+**View -> Camera SD card** picks a camera and plays what is on the card inside
+it, without Mi Home. Choose a day, an hour and a clip; the camera plays that clip
+and then runs on through the ones after it, in real time. **Back to live**, or
+Escape, closes the card and returns to the live grid. Sound plays too if you tick
+the box.
+
+Opening a card stops the live grid first. A camera serves one peer-to-peer
+session comfortably and a second one only argues with the first over the same
+link, so the grid comes back when you leave the screen.
+
+Two things about the footage are worth knowing, because they are the camera's
+rules rather than this program's:
+
+- **A clip can only be played from its own first second.** The camera records in
+  clips of about a minute, but it starts each one where the last ended rather
+  than on the minute, so their start times look arbitrary. Asking for a round
+  minute, or for any instant inside a clip that is not its first, is answered
+  "not found" by a camera that plainly holds the footage. This is why the clip
+  list exists rather than a scrubbing bar: the catalogue is the only place those
+  instants are written down.
+- **The catalogue is the whole card.** A fortnight of continuous recording is
+  around twenty thousand clips, which the camera hands over in a second or two
+  as one table. It is read once when the screen opens. A dual-lens CW500 keeps
+  one catalogue for both pictures and writes a second file at the same
+  timestamps (`%timestamp_1.mp4`), but only the main lens can be played. Every
+  local open looks the time up in that channel's index, and the second
+  channel's index is empty, so asking the camera to stream or send that picture
+  is answered "not found". Live dual-lens still works; this limit is the card.
+
+Only the CW400 and the CW500's main lens are offered. The requests were recovered
+from IMILAB's published firmware for those two boards, and a model that reads
+them differently does not fail politely: it says nothing at all. Other cameras
+are listed but greyed out rather than being allowed to sit on an empty screen. A
+CW500's second live tile is omitted: that picture is on the card and the camera
+will not open it locally.
 
 Three consequences of recording the stream rather than a re-encode of it. A file
 can only begin on a keyframe, so recording starts within a second or two of
@@ -452,6 +471,13 @@ Home. `scripts/probe-dual-session.ps1` captures the raw interleaving, and
 `scripts/verify-lenses.ps1` checks both decoded tiles against the shared remote
 endpoint.
 
+Live dual-lens does not extend to the card. The camera keeps one catalogue
+(channel 0) and writes `%timestamp_1.mp4` beside each clip, but every local
+open -- MISS playback (`0x10D`) and RDT file fetch (command 1) -- looks the
+time up in that channel's index. Channel 1's index is empty, so the second
+picture cannot be played from Camera SD card. View -> Camera SD card therefore
+lists the camera once, as its main lens.
+
 ## Pan and tilt
 
 The camera is pointed over the same peer-to-peer connection the video arrives on,
@@ -496,6 +522,15 @@ for working out a model that does not respond to the payload above.
   layout come from public sources, but its stream, audio, quality and motor
   controls have not been exercised against hardware here. The viewer exposes
   its hybrid-zoom camera as one tile and cannot select the telephoto sensor yet.
+- **SD card playback cannot pause or scrub.** The camera streams a recording in
+  real time and takes no seek within it, so the only positions available are the
+  starts of the clips it lists. Playing from a moment part-way through a clip
+  means playing that clip from its beginning.
+- **SD card playback is limited to the CW400 and the CW500's main lens.** The
+  catalogue request and the playback command came from those boards' firmware.
+  Other models are greyed out in the menu rather than offered and left blank. A
+  CW500's second live tile is not listed: the camera writes that picture to the
+  card but will not open it locally.
 - Cameras negotiating a transport other than CS2 (older TUTK-based models) are
   rejected with a clear message rather than silently failing.
 - Audio is mono, and playing it is one-way. There is no talkback.

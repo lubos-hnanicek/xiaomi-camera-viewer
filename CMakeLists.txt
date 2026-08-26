@@ -130,6 +130,7 @@ add_executable(XiaomiViewer WIN32
     src/media/MatroskaMuxer.cpp
     src/media/RecordingPlayer.cpp
     src/media/Recorder.cpp
+    src/media/SdPlayer.cpp
     src/media/StreamWorker.cpp
     src/media/VideoDecoder.cpp
     src/render/D3D11Context.cpp
@@ -140,6 +141,7 @@ add_executable(XiaomiViewer WIN32
     src/ui/LoginView.cpp
     src/ui/PlaybackView.cpp
     src/ui/PtzOverlay.cpp
+    src/ui/SdCardView.cpp
     src/ui/SettingsView.cpp
     src/util/Encoding.cpp
     src/util/FileDialog.cpp
@@ -189,9 +191,16 @@ endif()
 # Everything the exe needs at runtime lands next to it so the build directory is
 # directly runnable and can be zipped as-is.
 #
-# This is a target of its own rather than a POST_BUILD step, because POST_BUILD
-# only fires when the exe relinks: a rebuilt xmbridge.dll would otherwise never
-# reach the output directory and the app would keep loading a stale bridge.
+# Two copies, because each rebuild path misses the other:
+# POST_BUILD fires when the exe relinks, including `cmake --build --target
+# XiaomiViewer`. stage_runtime fires when only the Go DLL changed, which
+# POST_BUILD would skip. Without both, the app loads a stale xmbridge.dll and
+# every new stream command looks like "unknown".
+add_custom_command(TARGET XiaomiViewer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${BRIDGE_DLL}" "$<TARGET_FILE_DIR:XiaomiViewer>"
+    COMMENT "Staging xmbridge.dll next to XiaomiViewer")
+
 set(STAGE_COMMANDS
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${BRIDGE_DLL}" "$<TARGET_FILE_DIR:XiaomiViewer>")

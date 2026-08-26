@@ -32,8 +32,14 @@ const (
 	CodecOPUS = 1032
 )
 
-// Command ids. The playback pair (0x10D/0x10E) is listed for completeness but
-// its payload schema is undocumented and nothing here uses it.
+// The playback pair is exported because the stream package sends the request
+// and waits for that particular answer, which it cannot do without naming it.
+const (
+	CmdPlaybackReq = 0x10D
+	CmdPlaybackRes = 0x10E
+)
+
+// Command ids.
 const (
 	cmdAuthReq           = 0x100
 	cmdAuthRes           = 0x101
@@ -48,8 +54,8 @@ const (
 	cmdStreamCtrlRes     = 0x10A
 	cmdGetAudioFormatReq = 0x10B
 	cmdGetAudioFormatRes = 0x10C
-	cmdPlaybackReq       = 0x10D
-	cmdPlaybackRes       = 0x10E
+	cmdPlaybackReq       = CmdPlaybackReq
+	cmdPlaybackRes       = CmdPlaybackRes
 	cmdDevInfoReq        = 0x110
 	cmdDevInfoRes        = 0x111
 	cmdMotorReq          = 0x112
@@ -348,6 +354,30 @@ func (c *Client) SendChannel(channel byte, cmd uint32, body string, encrypt, env
 	}
 
 	return c.conn.WriteChannel(channel, data)
+}
+
+// rdtChannel is where the camera's own sender writes RDT traffic, and where it
+// expects to be asked.
+const rdtChannel = 1
+
+// SendRDT asks the camera something over the file-transfer channel.
+//
+// The message is a four byte command, a four byte payload length and the
+// payload, all little-endian -- the opposite way round from a MISS command,
+// which is big-endian, on a channel that carries no envelope id and is
+// encrypted like everything else after authentication. Getting any of that
+// wrong is not an error the camera reports: it decrypts from the wrong offset,
+// finds nothing it recognises, and says nothing at all.
+func (c *Client) SendRDT(cmd uint32, payload []byte) error {
+	data := binary.LittleEndian.AppendUint32(nil, cmd)
+	data = binary.LittleEndian.AppendUint32(data, uint32(len(payload)))
+	data = append(data, payload...)
+
+	enc, err := crypto.Encode(data, c.key)
+	if err != nil {
+		return err
+	}
+	return c.conn.WriteChannel(rdtChannel, enc)
 }
 
 const hdrSize = 32

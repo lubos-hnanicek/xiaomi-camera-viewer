@@ -92,6 +92,22 @@ func TestIsDualLensModel(t *testing.T) {
 	}
 }
 
+func TestLensListAcceptsAScalarOrAnArray(t *testing.T) {
+	var l lensList
+	if err := json.Unmarshal([]byte(`1`), &l); err != nil {
+		t.Fatalf("scalar: %v", err)
+	}
+	if len(l) != 1 || l[0] != 1 {
+		t.Fatalf("scalar = %v, want [1]", l)
+	}
+	if err := json.Unmarshal([]byte(`[0,1]`), &l); err != nil {
+		t.Fatalf("array: %v", err)
+	}
+	if len(l) != 2 || l[0] != 0 || l[1] != 1 {
+		t.Fatalf("array = %v, want [0 1]", l)
+	}
+}
+
 func TestLoginRequiresCredentials(t *testing.T) {
 	out := decode(t, handleCall("login.begin", []byte(`{"username":"","password":""}`)))
 

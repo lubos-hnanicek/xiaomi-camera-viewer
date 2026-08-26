@@ -219,6 +219,36 @@ void drawRecordingAndSound() {
            "before the camera's first audio packet arrives is video only.");
     ImGui::Dummy(ImVec2(0, 8));
 
+    ImGui::SeparatorText("The camera's own SD card");
+
+    paragraph("View -> Camera SD card plays what is on the card inside a camera, without Mi Home. "
+              "Pick a day, an hour and a clip; the camera plays that clip and carries on through "
+              "the ones after it, in real time. Tick Sound to hear it as well. Back to live, or "
+              "Escape, closes the card and returns to the live grid.");
+    paragraph("Opening a card stops the live grid first, and leaving the screen brings it back. A "
+              "camera serves one peer-to-peer session comfortably, and a second one would only "
+              "argue with the first over the same link.");
+
+    paragraph("A few of its habits are the camera's rules rather than this program's:");
+    bullet("A clip can only be played from its own first second. Recording runs in clips of about "
+           "a minute, but each begins where the last ended rather than on the minute, so their "
+           "starts look arbitrary. This is why there is a clip list and no scrubbing bar: the "
+           "catalogue is the only place those instants are written down.");
+    bullet("On a two-lens CW500, both pictures share one catalogue and a second file is written "
+           "at the same timestamps, but only the main lens can be played. The camera will not "
+           "stream or send the second picture: every local open looks the time up in that "
+           "channel's index, and the second channel's is empty. Live dual-lens still works; "
+           "this limit is the card, so Camera SD card lists one entry per camera rather than "
+           "one per tile.");
+    bullet("Only the CW400 and the CW500's main lens are offered. The requests were recovered "
+           "from the published firmware for those boards, and a camera that reads them "
+           "differently says nothing at all rather than refusing, so the rest are greyed out "
+           "instead of being left blank.");
+    aside("Minutes the camera marked as containing a detection are labelled event. "
+          "They are still one-minute files; the mark was packed into the same number as "
+          "the length, which is why they once appeared as 316-second clips.");
+    ImGui::Dummy(ImVec2(0, 8));
+
     ImGui::SeparatorText("Listening");
 
     paragraph("A, or Listen on the pad, plays the selected camera's microphone. One camera is "

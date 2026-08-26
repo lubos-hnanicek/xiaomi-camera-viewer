@@ -2,10 +2,12 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -527,6 +529,32 @@ func hasAddress(ip string) bool {
 	return ip != "" && ip != "0.0.0.0"
 }
 
+// lensList is playback.start's lens field. The camera wants an array on the
+// wire; this type also accepts a bare number so a caller that unwraps a
+// one-element array (PowerShell's ConvertTo-Json) still names the right lens
+// instead of failing the command.
+type lensList []int
+
+func (l *lensList) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || string(data) == "null" {
+		return nil
+	}
+	if data[0] == '[' {
+		var inner []int
+		if err := json.Unmarshal(data, &inner); err != nil {
+			return err
+		}
+		*l = inner
+		return nil
+	}
+	var n int
+	if err := json.Unmarshal(data, &n); err != nil {
+		return err
+	}
+	*l = []int{n}
+	return nil
+}
+
 // handleStreamCommand runs an in-band command against a live session.
 func handleStreamCommand(s *stream.Session, request []byte) []byte {
 	var req struct {
@@ -537,12 +565,97 @@ func handleStreamCommand(s *stream.Session, request []byte) []byte {
 		Channel   byte   `json:"channel"`
 		Encrypt   *bool  `json:"encrypt"`
 		Envelope  *bool  `json:"envelope"`
+		Start     int64  `json:"start"`
+		End       int64  `json:"end"`
+		Lenses    lensList `json:"lenses"`
 	}
 	if err := json.Unmarshal(request, &req); err != nil {
 		return errResponse(err)
 	}
 
 	switch req.Method {
+	// What the camera holds on its SD card: every clip, oldest first. This is
+	// the only way to learn a clip's start, and a start is the only thing
+	// playback.start accepts.
+	//
+	// Slow by the standards of everything else here -- a full card's catalogue
+	// is around 170 kB reassembled from a couple of hundred pieces, and takes
+	// seconds -- so a caller on a UI thread will stall for as long as it takes.
+	case "recordings.list":
+		clips, err := s.Recordings(uint32(req.Channel))
+		if err != nil {
+			return errResponse(err)
+		}
+		return okResponse(map[string]any{"clips": clips})
+
+	// Histogram of one raw index. A CW500's second lens is not marked here:
+	// only the event bit appears above the duration, and channels 1 and 2
+	// answer empty.
+	case "recordings.inspect":
+		info, err := s.InspectIndex(uint32(req.Channel))
+		if err != nil {
+			return errResponse(err)
+		}
+		return okResponse(map[string]any{"index": info})
+
+	// Downloads one recorded MP4 by timestamp. Channel 0 is the only index
+	// the camera will look up; a 7 MB recording must not come back through
+	// the JSON command buffer, so the file is written to a temp path the
+	// caller deletes when it is done.
+	case "recordings.file":
+		data, err := s.FetchRecording(req.Start, uint32(req.Channel))
+		if err != nil {
+			return errResponse(err)
+		}
+		if len(data) == 0 {
+			return okResponse(map[string]any{"found": false})
+		}
+		file, err := os.CreateTemp("", "xiaomi-viewer-sd-*.mp4")
+		if err != nil {
+			return errResponse(err)
+		}
+		path := file.Name()
+		if _, err := file.Write(data); err != nil {
+			_ = file.Close()
+			_ = os.Remove(path)
+			return errResponse(err)
+		}
+		if err := file.Close(); err != nil {
+			_ = os.Remove(path)
+			return errResponse(err)
+		}
+		return okResponse(map[string]any{
+			"found": true,
+			"path":  path,
+			"size":  len(data),
+		})
+
+	// Sends a recording instead of the live picture. The frames arrive on the
+	// ordinary media path, so a caller already reading frames need do nothing
+	// else; the camera stops sending live video as soon as it accepts.
+	//
+	// start must be a clip's exact start as recordings.list gave it. This is
+	// not a seek: any other instant, including a round minute or one the clip
+	// plainly covers, is answered "filenotfound" by a camera that holds the
+	// footage.
+	case "playback.start":
+		status, err := s.Play(req.Start, req.End, []int(req.Lenses))
+		if err != nil {
+			return errResponse(err)
+		}
+		return okResponse(map[string]any{
+			"found":    status.Found(),
+			"status":   status.Status,
+			"start":    status.Start,
+			"duration": status.Duration,
+			"lens":     status.Lens,
+		})
+
+	case "playback.stop":
+		if err := s.StopPlayback(); err != nil {
+			return errResponse(err)
+		}
+		return okResponse(nil)
 	// One step per call. The camera has no notion of a movement that continues
 	// until stopped, so there is no matching ptz.stop.
 	case "ptz.step":
@@ -583,6 +696,21 @@ func handleStreamCommand(s *stream.Session, request []byte) []byte {
 		// one, so a probe has to be able to say so.
 		envelope := req.Envelope == nil || *req.Envelope
 		if err := s.RawChannel(req.Channel, req.Cmd, req.Body, encrypt, envelope); err != nil {
+			return errResponse(err)
+		}
+		return okResponse(nil)
+
+	// Binary RDT, for payloads that cannot travel as a JSON string. A recording
+	// timestamp has bytes above 0x7F; putting those in miss.channel UTF-8s them
+	// and the camera reads a different time. Body is hex. See FileRequest.
+	case "rdt.send":
+		raw := strings.ReplaceAll(req.Body, " ", "")
+		raw = strings.TrimPrefix(strings.ToLower(raw), "hex:")
+		payload, err := hex.DecodeString(raw)
+		if err != nil {
+			return errResponse(err)
+		}
+		if err := s.SendRDT(req.Cmd, payload); err != nil {
 			return errResponse(err)
 		}
 		return okResponse(nil)
