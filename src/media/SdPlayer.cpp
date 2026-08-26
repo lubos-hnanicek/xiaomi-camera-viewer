@@ -146,9 +146,7 @@ void SdPlayer::open(D3D11Context& gpu, CameraConfig camera, AccountConfig accoun
     lastPts_ = -1;
     awaitingFirstFrame_.store(false, std::memory_order_release);
     playingFrom_.store(0, std::memory_order_release);
-    if (usesFilePlayback()) {
-        invalidatePicture();
-    }
+    invalidatePicture();
 
     setState(SdState::Connecting, "Connecting to the camera");
 
@@ -337,6 +335,7 @@ void SdPlayer::commandLoop() {
         // Stopping is asked for with a negative instant, since zero already
         // means "nothing pending".
         if (wantPlay < 0) {
+            awaitingFirstFrame_.store(false, std::memory_order_release);
             if (usesFilePlayback()) {
                 abortFilePlayback();
                 filePlaying_.store(false, std::memory_order_release);
@@ -398,10 +397,12 @@ void SdPlayer::commandLoop() {
                       });
 
         if (!responseOk(answer)) {
+            awaitingFirstFrame_.store(false, std::memory_order_release);
             setError(responseError(answer));
             continue;
         }
         if (!answer.value("found", false)) {
+            awaitingFirstFrame_.store(false, std::memory_order_release);
             // The camera listed this clip and now cannot open it, which happens
             // when the card has wrapped since the catalogue was read.
             setError("The camera no longer has that recording");
@@ -410,7 +411,6 @@ void SdPlayer::commandLoop() {
 
         currentClip_ = index;
         playingFrom_.store(clip.start, std::memory_order_release);
-        awaitingFirstFrame_.store(true, std::memory_order_release);
 
         {
             std::scoped_lock lock(statusMutex_);
@@ -483,7 +483,15 @@ void SdPlayer::onFrame(const uint8_t* data, const XmbFrame& meta, VideoDecoder& 
         }
     }
 
-    if (trackPosition(meta)) {
+    const bool resetDecoder = trackPosition(meta);
+    if (awaitingFirstFrame_.load(std::memory_order_acquire)) {
+        // Play has been asked for but the camera has not switched yet. Dropping
+        // these frames keeps the last camera's picture (and the live GOP) off
+        // the texture until the recording actually starts.
+        return;
+    }
+
+    if (resetDecoder) {
         // Live and recorded footage are different streams on the same socket.
         // Continuing a GOP across that jump produces a frozen or corrupt
         // picture, which is what "back to live" looked like on the CW400.
@@ -552,6 +560,12 @@ bool SdPlayer::trackPosition(const XmbFrame& meta) {
 }
 
 void SdPlayer::onDecodedFrame(const AVFrame* frame) {
+    if (awaitingFirstFrame_.load(std::memory_order_acquire)) {
+        // Live (or previous-clip) frames still in flight after a play request.
+        // Showing them is how the picture used to jump to the wrong camera or
+        // a half-decoded GOP when the card was asked for a different recording.
+        return;
+    }
     AVFrame* copy = av_frame_alloc();
     if (copy == nullptr) {
         return;
@@ -637,6 +651,12 @@ size_t SdPlayer::clipCount() const {
 }
 
 void SdPlayer::play(int64_t instant) {
+    // Drop the picture now, before the camera has answered. Otherwise the last
+    // frame of the previous clip (or the previous camera) stays on screen while
+    // the request is in flight, and the decoder will try to continue a GOP
+    // across two recordings.
+    invalidatePicture();
+    awaitingFirstFrame_.store(true, std::memory_order_release);
     {
         std::scoped_lock lock(commandMutex_);
         playWanted_ = instant;
@@ -645,11 +665,51 @@ void SdPlayer::play(int64_t instant) {
 }
 
 void SdPlayer::stop() {
+    awaitingFirstFrame_.store(false, std::memory_order_release);
     {
         std::scoped_lock lock(commandMutex_);
         playWanted_ = -1;
     }
     commandSignal_.notify_all();
+}
+
+int64_t SdPlayer::skipClip(int delta) {
+    if (delta == 0) {
+        return 0;
+    }
+
+    int64_t at = 0;
+    {
+        std::scoped_lock lock(statusMutex_);
+        at = status_.position > 0 ? status_.position : status_.requested;
+    }
+
+    int64_t start = 0;
+    {
+        std::scoped_lock lock(clipsMutex_);
+        if (clips_.empty()) {
+            return 0;
+        }
+
+        size_t index = 0;
+        if (at > 0) {
+            const auto after = std::upper_bound(
+                clips_.begin(), clips_.end(), at,
+                [](int64_t instant, const SdClip& c) { return instant < c.start; });
+            if (after != clips_.begin()) {
+                index = static_cast<size_t>(std::distance(clips_.begin(), std::prev(after)));
+            }
+        }
+
+        const int64_t next = static_cast<int64_t>(index) + delta;
+        if (next < 0 || next >= static_cast<int64_t>(clips_.size())) {
+            return 0;
+        }
+        start = clips_[static_cast<size_t>(next)].start;
+    }
+
+    play(start);
+    return start;
 }
 
 void SdPlayer::saveClips(std::vector<SdClip> clips, std::filesystem::path directory) {

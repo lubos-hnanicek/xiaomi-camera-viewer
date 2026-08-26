@@ -448,6 +448,156 @@ SdZoomState& sdZoomState() {
     return state;
 }
 
+struct SdSeekState {
+    bool dragging = false;
+    int64_t preview = 0;
+};
+
+SdSeekState& sdSeekState() {
+    static SdSeekState state;
+    return state;
+}
+
+bool dayRange(const Browser& state, int64_t& begin, int64_t& end) {
+    if (state.day < 0 || state.day >= static_cast<int>(state.days.size())) {
+        return false;
+    }
+    const Day& day = state.days[static_cast<size_t>(state.day)];
+    begin = 0;
+    end = 0;
+    for (const Hour& hour : day.hours) {
+        for (const size_t index : hour.clips) {
+            if (index >= state.clips.size()) {
+                continue;
+            }
+            const SdClip& clip = state.clips[index];
+            if (begin == 0 || clip.start < begin) {
+                begin = clip.start;
+            }
+            if (clip.end() > end) {
+                end = clip.end();
+            }
+        }
+    }
+    return end > begin;
+}
+
+void revealInstant(Browser& state, int64_t instant) {
+    LocalClock clock;
+    const int64_t local = clock.toLocal(instant);
+    const int64_t dayStart = floorTo(local, kDay);
+    const int64_t hourStart = floorTo(local, kHour);
+    for (int i = 0; i < static_cast<int>(state.days.size()); ++i) {
+        if (state.days[static_cast<size_t>(i)].localStart != dayStart) {
+            continue;
+        }
+        state.day = i;
+        const Day& day = state.days[static_cast<size_t>(i)];
+        for (int j = 0; j < static_cast<int>(day.hours.size()); ++j) {
+            if (day.hours[static_cast<size_t>(j)].localStart == hourStart) {
+                state.hour = j;
+                return;
+            }
+        }
+        state.hour = day.hours.empty() ? -1 : 0;
+        return;
+    }
+}
+
+void handleSeekKeys(App& app) {
+    if (ImGui::GetIO().WantTextInput ||
+        ImGui::IsPopupOpen(nullptr,
+                           ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) ||
+        sdSeekState().dragging) {
+        return;
+    }
+
+    int delta = 0;
+    if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) {
+        delta = -1;
+    } else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) {
+        delta = 1;
+    }
+    if (delta == 0) {
+        return;
+    }
+
+    Browser& state = browser();
+    const SdPlayer::Status status = app.sdPlayer().status();
+    int64_t start = 0;
+    if (status.position == 0 && status.requested == 0) {
+        if (state.day < 0 || state.hour < 0 ||
+            state.day >= static_cast<int>(state.days.size())) {
+            return;
+        }
+        const Day& day = state.days[static_cast<size_t>(state.day)];
+        if (state.hour >= static_cast<int>(day.hours.size())) {
+            return;
+        }
+        const Hour& hour = day.hours[static_cast<size_t>(state.hour)];
+        if (hour.clips.empty()) {
+            return;
+        }
+        const size_t index = delta > 0 ? hour.clips.front() : hour.clips.back();
+        if (index < state.clips.size()) {
+            start = state.clips[index].start;
+            app.sdPlayer().play(start);
+        }
+    } else {
+        start = app.sdPlayer().skipClip(delta);
+    }
+    if (start > 0) {
+        revealInstant(state, start);
+    }
+}
+
+void drawSeekBar(App& app) {
+    Browser& state = browser();
+    const SdPlayer::Status status = app.sdPlayer().status();
+    SdSeekState& seeking = sdSeekState();
+
+    int64_t begin = 0;
+    int64_t end = 0;
+    const bool haveRange = dayRange(state, begin, end);
+    if (!haveRange) {
+        seeking = {};
+    }
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 8));
+    if (ImGui::BeginChild("##sd-seek", ImVec2(0, 0),
+                          ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_Borders)) {
+        ImGui::BeginDisabled(!haveRange);
+        LocalClock clock;
+        const int64_t shown = seeking.dragging ? seeking.preview
+                            : (status.position > 0 ? status.position
+                               : (status.requested > 0 ? status.requested : begin));
+        if (haveRange) {
+            ImGui::TextUnformatted(formatLocal(clock.toLocal(shown), "full").c_str());
+            ImGui::SameLine();
+        }
+
+        int64_t position = haveRange ? std::clamp(shown, begin, end) : 0;
+        ImGui::SetNextItemWidth(-1.0f);
+        if (haveRange &&
+            ImGui::SliderScalar("##sd-position", ImGuiDataType_S64, &position, &begin, &end, "",
+                                ImGuiSliderFlags_NoInput)) {
+            seeking.dragging = true;
+            seeking.preview = position;
+        }
+        if (seeking.dragging && ImGui::IsItemDeactivatedAfterEdit()) {
+            seeking.dragging = false;
+            app.sdPlayer().play(position);
+            revealInstant(state, position);
+        }
+        ImGui::SetItemTooltip(
+            "The camera plays from the start of the clip covering this moment. "
+            "Left and Right skip a clip.");
+        ImGui::EndDisabled();
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleVar();
+}
+
 void drawPicture(App& app, float height) {
     SdPlayer& player = app.sdPlayer();
     const SdPlayer::Status status = player.status();
@@ -538,11 +688,13 @@ void drawPicture(App& app, float height) {
 
 void drawSdCardView(App& app) {
     syncBrowser(app);
+    handleSeekKeys(app);
 
     drawToolbar(app);
     ImGui::Spacing();
 
-    const float height = ImGui::GetContentRegionAvail().y;
+    const float seekReserve = 48.0f;
+    const float height = std::max(80.0f, ImGui::GetContentRegionAvail().y - seekReserve);
 
     const int64_t chosen = drawBrowser(app, height);
     ImGui::SameLine();
@@ -551,6 +703,8 @@ void drawSdCardView(App& app) {
     if (chosen > 0) {
         app.sdPlayer().play(chosen);
     }
+
+    drawSeekBar(app);
 }
 
 } // namespace xv

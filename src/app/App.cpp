@@ -1659,6 +1659,7 @@ void App::openSdPlayback(size_t cameraIndex) {
     }
 
     XV_INFO("opening the card on {}", camera.label());
+    sdTexture_.reset();
     sdPlayer_.open(gpu_, camera, config_.account);
     screen_ = Screen::SdCard;
 }
@@ -1666,6 +1667,7 @@ void App::openSdPlayback(size_t cameraIndex) {
 void App::closeSdPlayback(bool resumeLive) {
     sdPlayer_.mute();
     sdPlayer_.close();
+    sdTexture_.reset();
 
     const bool shouldResume = sdSuspendedLive_;
     sdSuspendedLive_ = false;

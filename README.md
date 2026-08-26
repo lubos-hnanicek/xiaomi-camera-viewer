@@ -202,6 +202,10 @@ Escape, closes the card and returns to the live grid. Sound plays too if you tic
 the box. Hold the right mouse button over the picture to magnify it, the same
 way as on the live grid.
 
+The bar under the picture seeks within the selected day. The camera will only
+start at a clip's first second, so the thumb jumps to the clip covering that
+moment. Left and Right skip a whole clip.
+
 Click a clip to play it. Ctrl-click and Shift-click mark more than one.
 Right-click the clip list and choose **Save** to download the marked files as
 the camera stored them (MP4) into the recordings folder.
@@ -217,9 +221,9 @@ rules rather than this program's:
   clips of about a minute, but it starts each one where the last ended rather
   than on the minute, so their start times look arbitrary. Asking for a round
   minute, or for any instant inside a clip that is not its first, is answered
-  "not found" by a camera that plainly holds the footage. This is why the clip
-  list exists rather than a scrubbing bar: the catalogue is the only place those
-  instants are written down.
+  "not found" by a camera that plainly holds the footage. The clip list and the
+  seek bar both name those catalogue starts: dragging the bar plays the clip
+  covering that moment, from its beginning.
 - **The catalogue is the whole card.** A fortnight of continuous recording is
   around twenty thousand clips, which the camera hands over in a second or two
   as one table. It is read once when the screen opens. A dual-lens CW500 keeps
@@ -527,10 +531,10 @@ for working out a model that does not respond to the payload above.
   layout come from public sources, but its stream, audio, quality and motor
   controls have not been exercised against hardware here. The viewer exposes
   its hybrid-zoom camera as one tile and cannot select the telephoto sensor yet.
-- **SD card playback cannot pause or scrub.** The camera streams a recording in
-  real time and takes no seek within it, so the only positions available are the
-  starts of the clips it lists. Playing from a moment part-way through a clip
-  means playing that clip from its beginning.
+- **SD card playback cannot pause, and cannot seek inside a clip.** The camera
+  streams a recording in real time. The bar under the picture and the arrow keys
+  jump to another clip's start; playing from a moment part-way through a clip
+  still means playing that clip from its beginning.
 - **SD card playback is limited to the CW400 and the CW500's main lens.** The
   catalogue request and the playback command came from those boards' firmware.
   Other models are greyed out in the menu rather than offered and left blank. A

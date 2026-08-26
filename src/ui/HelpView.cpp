@@ -130,6 +130,14 @@ void drawControls() {
     };
     bindings("##playbackkeys", kPlaybackKeys);
 
+    ImGui::SeparatorText("Keyboard: the camera's SD card");
+
+    static constexpr std::array kSdKeys{
+        Binding{"Left / Right", "Play the previous or next clip"},
+        Binding{"Esc", "Close the card and return to the live grid"},
+    };
+    bindings("##sdkeys", kSdKeys);
+
     ImGui::SeparatorText("Keyboard: anywhere");
 
     static constexpr std::array kGlobalKeys{
@@ -234,8 +242,9 @@ void drawRecordingAndSound() {
     paragraph("A few of its habits are the camera's rules rather than this program's:");
     bullet("A clip can only be played from its own first second. Recording runs in clips of about "
            "a minute, but each begins where the last ended rather than on the minute, so their "
-           "starts look arbitrary. This is why there is a clip list and no scrubbing bar: the "
-           "catalogue is the only place those instants are written down.");
+           "starts look arbitrary. The bar under the picture jumps to the clip covering the "
+           "moment you choose; the camera then plays that clip from its beginning. Left and "
+           "Right skip a whole clip.");
     bullet("On a two-lens CW500, both pictures share one catalogue and a second file is written "
            "at the same timestamps, but only the main lens can be played. The camera will not "
            "stream or send the second picture: every local open looks the time up in that "

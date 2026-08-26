@@ -125,6 +125,11 @@ public:
     void play(int64_t instant);
     void stop();
 
+    // Plays the clip before or after the one now on screen (or the one last
+    // asked for). Returns the start that was asked for, or zero if there is
+    // nowhere to go.
+    int64_t skipClip(int delta);
+
     // Downloads these clips as the camera stored them (MP4) into directory.
     // Returns at once; watch status().saveMessage for progress. Channel 0 is
     // the only index the camera will look up, so this is the main lens.
