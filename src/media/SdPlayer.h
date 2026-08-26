@@ -85,6 +85,12 @@ public:
         // True while a clip is being played from a downloaded file rather than
         // streamed. Unused: the CW500's second picture cannot be opened locally.
         bool filePlayback = false;
+
+        // Progress of a right-click Save. saveTotal is zero when nothing has
+        // been asked for; saveDone catches up as each file lands.
+        size_t saveTotal = 0;
+        size_t saveDone = 0;
+        std::string saveMessage;
     };
 
     SdPlayer() = default;
@@ -119,6 +125,11 @@ public:
     void play(int64_t instant);
     void stop();
 
+    // Downloads these clips as the camera stored them (MP4) into directory.
+    // Returns at once; watch status().saveMessage for progress. Channel 0 is
+    // the only index the camera will look up, so this is the main lens.
+    void saveClips(std::vector<SdClip> clips, std::filesystem::path directory);
+
     // Render-thread side, exactly as StreamWorker's.
     bool present(D3D11Context& gpu, VideoFrameTexture& texture);
     [[nodiscard]] Status status() const;
@@ -139,6 +150,8 @@ private:
     void run(D3D11Context* gpu);
     void commandLoop();
     void fileLoop();
+    void saveLoop();
+    void saveOne(const SdClip& clip, const std::filesystem::path& directory);
 
     bool openSession();
     void closeSession();
@@ -162,7 +175,8 @@ private:
     [[nodiscard]] bool usesFilePlayback() const;
     [[nodiscard]] uint32_t fileChannel() const;
     [[nodiscard]] bool commandInterrupted();
-    bool fetchRecordingFile(const SdClip& clip, std::filesystem::path& path, std::string& error);
+    bool fetchRecordingFile(const SdClip& clip, uint32_t channel, std::filesystem::path& path,
+                           std::string& error);
     bool enqueueClip(size_t index, bool reportError);
     void runFilePlayback(int64_t instant);
     void abortFilePlayback();
@@ -178,6 +192,7 @@ private:
     std::thread thread_;
     std::thread commandThread_;
     std::thread fileThread_;
+    std::thread saveThread_;
     std::atomic<bool> running_{false};
     std::atomic<bool> stopping_{false};
 
@@ -229,6 +244,11 @@ private:
 
     std::atomic<AudioPlayer*> speaker_{nullptr};
     AudioDecoder audioDecoder_;
+
+    std::mutex saveMutex_;
+    std::condition_variable saveSignal_;
+    std::deque<SdClip> saveQueue_;
+    std::filesystem::path saveDirectory_;
 };
 
 } // namespace xv

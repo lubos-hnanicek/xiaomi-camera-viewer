@@ -3,8 +3,10 @@
 #include <algorithm>
 #include <charconv>
 #include <chrono>
+#include <exception>
 #include <format>
 #include <iterator>
+#include <string_view>
 #include <system_error>
 
 extern "C" {
@@ -52,6 +54,50 @@ uint32_t recordingFileChannel(const CameraConfig& camera) {
 std::string utf8Of(const std::filesystem::path& path) {
     const std::u8string text = path.u8string();
     return std::string(reinterpret_cast<const char*>(text.data()), text.size());
+}
+
+std::filesystem::path pathFromUtf8(const std::string& text) {
+    return std::filesystem::path(std::u8string(
+        reinterpret_cast<const char8_t*>(text.data()), text.size()));
+}
+
+std::string safeFileStem(const std::string& label) {
+    std::string name = label;
+    for (char& c : name) {
+        if (static_cast<unsigned char>(c) < 0x20 ||
+            std::string_view("<>:\"/\\|?*").find(c) != std::string_view::npos) {
+            c = '-';
+        }
+    }
+    return name;
+}
+
+std::string clipStamp(int64_t epoch) {
+    const auto instant = std::chrono::sys_seconds{std::chrono::seconds{epoch}};
+    try {
+        return std::format("{:%Y-%m-%d %H-%M-%S}",
+                           std::chrono::zoned_time{std::chrono::current_zone(), instant});
+    } catch (const std::exception&) {
+        return std::format("{:%Y-%m-%d %H-%M-%S}", instant);
+    }
+}
+
+std::filesystem::path uniqueDestination(std::filesystem::path path) {
+    if (!std::filesystem::exists(path)) {
+        return path;
+    }
+    const auto parent = path.parent_path();
+    const auto stem = path.stem();
+    const auto ext = path.extension();
+    for (int n = 2; n < 1000; ++n) {
+        auto candidate = parent / stem;
+        candidate += std::format(" ({})", n);
+        candidate += ext;
+        if (!std::filesystem::exists(candidate)) {
+            return candidate;
+        }
+    }
+    return path;
 }
 
 std::string avError(int code) {
@@ -108,6 +154,7 @@ void SdPlayer::open(D3D11Context& gpu, CameraConfig camera, AccountConfig accoun
 
     thread_ = std::thread(&SdPlayer::run, this, &gpu);
     commandThread_ = std::thread(&SdPlayer::commandLoop, this);
+    saveThread_ = std::thread(&SdPlayer::saveLoop, this);
     if (usesFilePlayback()) {
         fileThread_ = std::thread(&SdPlayer::fileLoop, this);
     }
@@ -122,6 +169,7 @@ void SdPlayer::close() {
     fileAbort_.store(true, std::memory_order_release);
     commandSignal_.notify_all();
     fileSignal_.notify_all();
+    saveSignal_.notify_all();
 
     // The reader is blocked in readFrame. Closing the session is what unblocks
     // it; joining first waits for a camera that has gone silent, which is
@@ -137,6 +185,9 @@ void SdPlayer::close() {
     }
     if (fileThread_.joinable()) {
         fileThread_.join();
+    }
+    if (saveThread_.joinable()) {
+        saveThread_.join();
     }
 
     clearFileQueue();
@@ -601,6 +652,113 @@ void SdPlayer::stop() {
     commandSignal_.notify_all();
 }
 
+void SdPlayer::saveClips(std::vector<SdClip> clips, std::filesystem::path directory) {
+    if (clips.empty() || directory.empty() ||
+        !running_.load(std::memory_order_acquire)) {
+        return;
+    }
+
+    {
+        std::scoped_lock lock(saveMutex_);
+        const bool idle = saveQueue_.empty();
+        if (idle) {
+            std::scoped_lock status(statusMutex_);
+            status_.saveDone = 0;
+            status_.saveTotal = clips.size();
+            status_.saveMessage = std::format("Saving 0 of {}", clips.size());
+        } else {
+            std::scoped_lock status(statusMutex_);
+            status_.saveTotal += clips.size();
+            status_.saveMessage =
+                std::format("Saving {} of {}", status_.saveDone, status_.saveTotal);
+        }
+        saveDirectory_ = std::move(directory);
+        for (SdClip& clip : clips) {
+            saveQueue_.push_back(std::move(clip));
+        }
+    }
+    saveSignal_.notify_all();
+}
+
+void SdPlayer::saveLoop() {
+    while (!stopping_.load(std::memory_order_acquire)) {
+        SdClip clip;
+        std::filesystem::path directory;
+        {
+            std::unique_lock lock(saveMutex_);
+            saveSignal_.wait(lock, [this] {
+                return stopping_.load(std::memory_order_acquire) || !saveQueue_.empty();
+            });
+            if (stopping_.load(std::memory_order_acquire)) {
+                return;
+            }
+            clip = saveQueue_.front();
+            saveQueue_.pop_front();
+            directory = saveDirectory_;
+        }
+
+        saveOne(clip, directory);
+    }
+}
+
+void SdPlayer::saveOne(const SdClip& clip, const std::filesystem::path& directory) {
+    std::error_code ec;
+    std::filesystem::create_directories(directory, ec);
+
+    const std::string name =
+        std::format("{} {}.mp4", safeFileStem(camera_.label()), clipStamp(clip.start));
+    const std::filesystem::path dest = uniqueDestination(directory / pathFromUtf8(name));
+
+    std::filesystem::path temp;
+    std::string error;
+    if (!fetchRecordingFile(clip, 0, temp, error)) {
+        if (!temp.empty()) {
+            std::filesystem::remove(temp, ec);
+        }
+        std::scoped_lock lock(statusMutex_);
+        status_.saveDone++;
+        status_.saveMessage = error.empty() ? "Could not save that clip" : error;
+        XV_WARN("{}: could not save clip {}: {}", camera_.label(), clip.start, error);
+        return;
+    }
+
+    std::filesystem::rename(temp, dest, ec);
+    if (ec) {
+        std::filesystem::copy_file(temp, dest,
+                                   std::filesystem::copy_options::overwrite_existing, ec);
+        std::filesystem::remove(temp, ec);
+    }
+    if (ec) {
+        std::filesystem::remove(temp, ec);
+        std::scoped_lock lock(statusMutex_);
+        status_.saveDone++;
+        status_.saveMessage = "Could not write " + utf8Of(dest);
+        XV_WARN("{}: could not keep {}: {}", camera_.label(), utf8Of(dest), ec.message());
+        return;
+    }
+
+    XV_INFO("{}: saved clip {} to {}", camera_.label(), clip.start, utf8Of(dest));
+
+    bool more = false;
+    {
+        std::scoped_lock lock(saveMutex_);
+        more = !saveQueue_.empty();
+    }
+    std::scoped_lock lock(statusMutex_);
+    status_.saveDone++;
+    if (more) {
+        status_.saveMessage =
+            std::format("Saving {} of {}", status_.saveDone, status_.saveTotal);
+    } else if (status_.saveDone == status_.saveTotal) {
+        status_.saveMessage = status_.saveTotal == 1
+                                  ? "Saved 1 clip"
+                                  : std::format("Saved {} clips", status_.saveTotal);
+    } else {
+        status_.saveMessage =
+            std::format("Saved {} of {}", status_.saveDone, status_.saveTotal);
+    }
+}
+
 void SdPlayer::listen(AudioPlayer* speaker) {
     speaker_.store(speaker, std::memory_order_release);
     std::scoped_lock lock(statusMutex_);
@@ -657,16 +815,16 @@ bool SdPlayer::commandInterrupted() {
     return playWanted_ != 0;
 }
 
-bool SdPlayer::fetchRecordingFile(const SdClip& clip, std::filesystem::path& path,
+bool SdPlayer::fetchRecordingFile(const SdClip& clip, uint32_t channel, std::filesystem::path& path,
                                  std::string& error) {
     const Json answer = Bridge::instance().streamCommand(
         stream(), {
                       {"method", "recordings.file"},
                       {"start", clip.start},
-                      {"channel", fileChannel()},
+                      {"channel", channel},
                   });
-    XV_INFO("{}: recordings.file start={} channel={} -> {}", camera_.label(), clip.start,
-            fileChannel(), answer.dump());
+    XV_INFO("{}: recordings.file start={} channel={} -> {}", camera_.label(), clip.start, channel,
+            answer.dump());
     if (!responseOk(answer)) {
         error = responseError(answer);
         return false;
@@ -697,7 +855,7 @@ bool SdPlayer::enqueueClip(size_t index, bool reportError) {
 
     std::filesystem::path path;
     std::string error;
-    if (!fetchRecordingFile(clip, path, error)) {
+    if (!fetchRecordingFile(clip, fileChannel(), path, error)) {
         if (reportError && !stopping_.load(std::memory_order_acquire) && !commandInterrupted()) {
             setError(error);
         }

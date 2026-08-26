@@ -145,7 +145,7 @@ void drawControls() {
     aside("On the login, Cameras and Settings screens, Tab and Shift+Tab move between the fields "
           "and Space or Enter presses whatever is focused.");
 
-    ImGui::SeparatorText("Mouse: live grid and recording playback");
+    ImGui::SeparatorText("Mouse: live grid, recording playback and the SD card picture");
 
     static constexpr std::array kGridMouse{
         Binding{"Left click a tile", "Select that camera or recording track"},
@@ -157,7 +157,8 @@ void drawControls() {
     bindings("##gridmouse", kGridMouse);
 
     aside("Magnification is 2x by default. live_view_zoom in config.json changes the factor, and "
-          "1.0 turns it off; the right button then only selects the tile.");
+          "1.0 turns it off; the right button then only selects the tile. The same hold-to-magnify "
+          "works on a camera's SD card picture.");
 
     ImGui::SeparatorText("Mouse: the control pad");
 
@@ -223,8 +224,9 @@ void drawRecordingAndSound() {
 
     paragraph("View -> Camera SD card plays what is on the card inside a camera, without Mi Home. "
               "Pick a day, an hour and a clip; the camera plays that clip and carries on through "
-              "the ones after it, in real time. Tick Sound to hear it as well. Back to live, or "
-              "Escape, closes the card and returns to the live grid.");
+              "the ones after it, in real time. Tick Sound to hear it as well. Hold the right "
+              "button over the picture to magnify it, the same as on the live grid. Back to live, "
+              "or Escape, closes the card and returns to the live grid.");
     paragraph("Opening a card stops the live grid first, and leaving the screen brings it back. A "
               "camera serves one peer-to-peer session comfortably, and a second one would only "
               "argue with the first over the same link.");
@@ -246,7 +248,10 @@ void drawRecordingAndSound() {
            "instead of being left blank.");
     aside("Minutes the camera marked as containing a detection are labelled event. "
           "They are still one-minute files; the mark was packed into the same number as "
-          "the length, which is why they once appeared as 316-second clips.");
+          "the length, which is why they once appeared as 316-second clips. "
+          "Click a clip to play it. Ctrl-click and Shift-click mark more than one. "
+          "Right-click the list and choose Save to download the marked clips as the "
+          "camera stored them, into the same folder as live recordings.");
     ImGui::Dummy(ImVec2(0, 8));
 
     ImGui::SeparatorText("Listening");

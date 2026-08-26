@@ -199,7 +199,12 @@ cameras.
 it, without Mi Home. Choose a day, an hour and a clip; the camera plays that clip
 and then runs on through the ones after it, in real time. **Back to live**, or
 Escape, closes the card and returns to the live grid. Sound plays too if you tick
-the box.
+the box. Hold the right mouse button over the picture to magnify it, the same
+way as on the live grid.
+
+Click a clip to play it. Ctrl-click and Shift-click mark more than one.
+Right-click the clip list and choose **Save** to download the marked files as
+the camera stored them (MP4) into the recordings folder.
 
 Opening a card stops the live grid first. A camera serves one peer-to-peer
 session comfortably and a second one only argues with the first over the same

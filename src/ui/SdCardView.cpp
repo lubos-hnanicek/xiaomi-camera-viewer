@@ -1,13 +1,16 @@
 #include "ui/Views.h"
 
 #include <imgui.h>
+#include <imgui_impl_dx11.h>
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <exception>
 #include <format>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "app/App.h"
@@ -108,6 +111,12 @@ struct Browser {
 
     int day = -1;
     int hour = -1;
+
+    // Clip starts the user has marked for Save. Kept as starts rather than
+    // list indexes because the same clip can appear after a catalogue refresh
+    // with a different index.
+    std::unordered_set<int64_t> selected;
+    int64_t selectAnchor = 0;
 };
 
 Browser& browser() {
@@ -120,6 +129,8 @@ void rebuild(Browser& state, SdPlayer& player) {
     state.days.clear();
     state.day = -1;
     state.hour = -1;
+    state.selected.clear();
+    state.selectAnchor = 0;
 
     LocalClock clock;
     for (size_t i = 0; i < state.clips.size(); ++i) {
@@ -231,6 +242,11 @@ void drawToolbar(App& app) {
             ImGui::TextDisabled("%s", status.message.c_str());
         }
 
+        if (!status.saveMessage.empty()) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", status.saveMessage.c_str());
+        }
+
         if (!status.error.empty()) {
             ImGui::TextColored(theme::kFailed, "%s", status.error.c_str());
         }
@@ -297,12 +313,14 @@ int64_t drawBrowser(App& app, float height) {
         ImGui::TextDisabled("Clip");
         if (ImGui::BeginListBox("##sd-clips", ImVec2(-FLT_MIN, -FLT_MIN))) {
             LocalClock clock;
+            bool openMenu = false;
             for (const size_t index : hour.clips) {
                 const SdClip& clip = state.clips[index];
                 // The clip that is playing is marked, which is how the list
                 // stays meaningful once the camera has run on past the one that
                 // was actually asked for.
                 const bool playing = status.position >= clip.start && status.position < clip.end();
+                const bool marked = state.selected.contains(clip.start);
                 const char* mark = clip.event ? "  event" : "";
                 const std::string label =
                     std::format("{}  {}s{}##{}", formatLocal(clock.toLocal(clip.start), "minute"),
@@ -311,14 +329,86 @@ int64_t drawBrowser(App& app, float height) {
                 if (playing) {
                     ImGui::PushStyleColor(ImGuiCol_Text, theme::kAccent);
                 }
-                if (ImGui::Selectable(label.c_str(), playing)) {
-                    chosen = clip.start;
+                if (ImGui::Selectable(label.c_str(), marked)) {
+                    ImGuiIO& io = ImGui::GetIO();
+                    if (io.KeyShift && state.selectAnchor != 0) {
+                        int from = -1;
+                        int to = -1;
+                        for (int i = 0; i < static_cast<int>(hour.clips.size()); ++i) {
+                            const int64_t start = state.clips[hour.clips[static_cast<size_t>(i)]].start;
+                            if (start == state.selectAnchor) {
+                                from = i;
+                            }
+                            if (start == clip.start) {
+                                to = i;
+                            }
+                        }
+                        if (from >= 0 && to >= 0) {
+                            if (from > to) {
+                                std::swap(from, to);
+                            }
+                            if (!io.KeyCtrl) {
+                                state.selected.clear();
+                            }
+                            for (int i = from; i <= to; ++i) {
+                                state.selected.insert(
+                                    state.clips[hour.clips[static_cast<size_t>(i)]].start);
+                            }
+                        } else {
+                            if (!io.KeyCtrl) {
+                                state.selected.clear();
+                            }
+                            state.selected.insert(clip.start);
+                        }
+                    } else if (io.KeyCtrl) {
+                        if (marked) {
+                            state.selected.erase(clip.start);
+                        } else {
+                            state.selected.insert(clip.start);
+                        }
+                        state.selectAnchor = clip.start;
+                    } else {
+                        state.selected.clear();
+                        state.selected.insert(clip.start);
+                        state.selectAnchor = clip.start;
+                        chosen = clip.start;
+                    }
                 }
                 if (playing) {
                     ImGui::PopStyleColor();
                 }
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                    if (!marked) {
+                        state.selected.clear();
+                        state.selected.insert(clip.start);
+                        state.selectAnchor = clip.start;
+                    }
+                    openMenu = true;
+                }
             }
             ImGui::EndListBox();
+
+            if (openMenu) {
+                ImGui::OpenPopup("##sd-clip-menu");
+            }
+            if (ImGui::BeginPopup("##sd-clip-menu")) {
+                const size_t count = state.selected.size();
+                const std::string item =
+                    count <= 1 ? std::string("Save clip")
+                               : std::format("Save {} clips", count);
+                if (ImGui::MenuItem(item.c_str(), nullptr, false, count > 0)) {
+                    std::vector<SdClip> clips;
+                    clips.reserve(count);
+                    for (const SdClip& clip : state.clips) {
+                        if (state.selected.contains(clip.start)) {
+                            clips.push_back(clip);
+                        }
+                    }
+                    app.sdPlayer().saveClips(std::move(clips),
+                                            app.config().recordingsDirectory());
+                }
+                ImGui::EndPopup();
+            }
         }
     }
     ImGui::EndChild();
@@ -326,15 +416,54 @@ int64_t drawBrowser(App& app, float height) {
     return chosen;
 }
 
+void letterbox(float boxWidth, float boxHeight, float contentWidth, float contentHeight,
+               ImVec2& size, ImVec2& offset) {
+    if (contentWidth <= 0.0f || contentHeight <= 0.0f) {
+        size = ImVec2(boxWidth, boxHeight);
+        offset = ImVec2(0, 0);
+        return;
+    }
+
+    const float scale = std::min(boxWidth / contentWidth, boxHeight / contentHeight);
+    size = ImVec2(contentWidth * scale, contentHeight * scale);
+    offset = ImVec2((boxWidth - size.x) * 0.5f, (boxHeight - size.y) * 0.5f);
+}
+
+void useMipSampler(const ImDrawList*, const ImDrawCmd* command) {
+    auto* renderState =
+        static_cast<ImGui_ImplDX11_RenderState*>(ImGui::GetPlatformIO().Renderer_RenderState);
+    auto* sampler = static_cast<ID3D11SamplerState*>(command->UserCallbackData);
+    if (renderState != nullptr && sampler != nullptr) {
+        renderState->DeviceContext->PSSetSamplers(0, 1, &sampler);
+    }
+}
+
+struct SdZoomState {
+    bool active = false;
+    ImVec2 center = ImVec2(0.5f, 0.5f);
+};
+
+SdZoomState& sdZoomState() {
+    static SdZoomState state;
+    return state;
+}
+
 void drawPicture(App& app, float height) {
     SdPlayer& player = app.sdPlayer();
     const SdPlayer::Status status = player.status();
 
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Right) ||
+        ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+        sdZoomState().active = false;
+    }
+
     if (ImGui::BeginChild("##sd-picture", ImVec2(0, height), ImGuiChildFlags_Borders)) {
+        const ImVec2 tileOrigin = ImGui::GetCursorScreenPos();
         const ImVec2 area = ImGui::GetContentRegionAvail();
 
         player.present(app.gpu(), app.sdTexture());
         ID3D11ShaderResourceView* view = app.sdTexture().view();
+        bool zoomActive = false;
 
         if (view == nullptr) {
             const char* note = "Waiting for the camera";
@@ -349,13 +478,57 @@ void drawPicture(App& app, float height) {
         } else {
             const float contentWidth = static_cast<float>(std::max(status.width, 1));
             const float contentHeight = static_cast<float>(std::max(status.height, 1));
-            const float scale = std::min(area.x / contentWidth, area.y / contentHeight);
-            const ImVec2 size(contentWidth * scale, contentHeight * scale);
+            ImVec2 drawSize;
+            ImVec2 offset;
+            letterbox(area.x, area.y, contentWidth, contentHeight, drawSize, offset);
 
-            const ImVec2 origin = ImGui::GetCursorPos();
-            ImGui::SetCursorPos(ImVec2(origin.x + (area.x - size.x) * 0.5f,
-                                       origin.y + (area.y - size.y) * 0.5f));
-            ImGui::Image(reinterpret_cast<ImTextureID>(view), size);
+            const ImVec2 imageOrigin(tileOrigin.x + offset.x, tileOrigin.y + offset.y);
+            const ImVec2 imageEnd(imageOrigin.x + drawSize.x, imageOrigin.y + drawSize.y);
+            const bool imageHovered = ImGui::IsMouseHoveringRect(imageOrigin, imageEnd);
+            ImGuiIO& io = ImGui::GetIO();
+            SdZoomState& zoom = sdZoomState();
+
+            const float factor = app.config().liveViewZoom;
+            const float visibleSpan = 1.0f / factor;
+            const float halfSpan = visibleSpan * 0.5f;
+
+            if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right) && factor > 1.0f) {
+                zoom.active = true;
+                const float pointerX =
+                    std::clamp((io.MousePos.x - imageOrigin.x) / drawSize.x, 0.0f, 1.0f);
+                const float pointerY =
+                    std::clamp((io.MousePos.y - imageOrigin.y) / drawSize.y, 0.0f, 1.0f);
+                zoom.center.x = pointerX + (0.5f - pointerX) * visibleSpan;
+                zoom.center.y = pointerY + (0.5f - pointerY) * visibleSpan;
+            }
+
+            zoomActive = zoom.active && ImGui::IsMouseDown(ImGuiMouseButton_Right);
+            if (zoomActive) {
+                if (!ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+                    zoom.center.x -= io.MouseDelta.x * visibleSpan / drawSize.x;
+                    zoom.center.y -= io.MouseDelta.y * visibleSpan / drawSize.y;
+                }
+                zoom.center.x = std::clamp(zoom.center.x, halfSpan, 1.0f - halfSpan);
+                zoom.center.y = std::clamp(zoom.center.y, halfSpan, 1.0f - halfSpan);
+            }
+
+            const ImVec2 uv0 = zoomActive
+                                   ? ImVec2(zoom.center.x - halfSpan, zoom.center.y - halfSpan)
+                                   : ImVec2(0.0f, 0.0f);
+            const ImVec2 uv1 = zoomActive
+                                   ? ImVec2(zoom.center.x + halfSpan, zoom.center.y + halfSpan)
+                                   : ImVec2(1.0f, 1.0f);
+
+            ImGui::SetCursorScreenPos(imageOrigin);
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            drawList->AddCallback(useMipSampler, app.gpu().mipSampler());
+            ImGui::Image(reinterpret_cast<ImTextureID>(view), drawSize, uv0, uv1);
+            drawList->AddCallback(ImGui::GetPlatformIO().DrawCallback_ResetRenderState, nullptr);
+
+            if (imageHovered) {
+                ImGui::SetMouseCursor(zoomActive ? ImGuiMouseCursor_ResizeAll
+                                                 : ImGuiMouseCursor_Hand);
+            }
         }
     }
     ImGui::EndChild();
