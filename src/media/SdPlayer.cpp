@@ -771,7 +771,11 @@ void SdPlayer::saveOne(const SdClip& clip, const std::filesystem::path& director
 
     std::filesystem::path temp;
     std::string error;
-    if (!fetchRecordingFile(clip, 0, temp, error)) {
+    // This tile's own channel, not channel 0. The clip came from this lens's
+    // catalogue and the two lenses share almost no starts, so asking channel 0
+    // for it would usually be answered "not found" and, for the handful of
+    // instants they do share, would quietly save the other lens's picture.
+    if (!fetchRecordingFile(clip, fileChannel(), temp, error)) {
         if (!temp.empty()) {
             std::filesystem::remove(temp, ec);
         }
