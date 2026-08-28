@@ -28,7 +28,7 @@ The pictures in the tiles are stand-ins rather than real camera output.
   HDR, image flip, motion detection and sensitivity, tracking, fill light,
   siren, indicator LED, recording mode and SD card status
 - Playback of the footage on a camera's own SD card, browsed by day, hour and
-  clip, on the CW400 and the CW500's main lens
+  clip, on the CW400 and on both lenses of the CW500
 - Both lenses of a dual-lens CW500 as independent tiles over one camera session
 - Automatic reconnection with backoff when a camera drops the session
 - Sign-in handles captchas and two-step verification; the resulting token is
@@ -227,18 +227,19 @@ rules rather than this program's:
 - **The catalogue is the whole card.** A fortnight of continuous recording is
   around twenty thousand clips, which the camera hands over in a second or two
   as one table. It is read once when the screen opens. A dual-lens CW500 keeps
-  one catalogue for both pictures and writes a second file at the same
-  timestamps (`%timestamp_1.mp4`), but only the main lens can be played. Every
-  local open looks the time up in that channel's index, and the second
-  channel's index is empty, so asking the camera to stream or send that picture
-  is answered "not found". Live dual-lens still works; this limit is the card.
+  one such catalogue *per lens*, and the two do not line up: each lens starts a
+  new file where its own last one ended, so out of some twenty thousand clips
+  only about thirteen hundred starts are shared. Each tile browses its own list.
+- **The second lens arrives as files, not as a stream.** The main lens is
+  streamed in real time; the second is downloaded a clip at a time and decoded
+  here, so it pauses for a moment before each minute. That is the camera's
+  doing rather than a preference: it will stream that picture only
+  intermittently, while it hands the file over every time.
 
-Only the CW400 and the CW500's main lens are offered. The requests were recovered
-from IMILAB's published firmware for those two boards, and a model that reads
-them differently does not fail politely: it says nothing at all. Other cameras
-are listed but greyed out rather than being allowed to sit on an empty screen. A
-CW500's second live tile is omitted: that picture is on the card and the camera
-will not open it locally.
+Only the CW400 and the CW500 are offered. The requests were recovered from
+IMILAB's published firmware for those two boards, and a model that reads them
+differently does not fail politely: it says nothing at all. Other cameras are
+listed but greyed out rather than being allowed to sit on an empty screen.
 
 Three consequences of recording the stream rather than a re-encode of it. A file
 can only begin on a keyframe, so recording starts within a second or two of
@@ -480,12 +481,36 @@ Home. `scripts/probe-dual-session.ps1` captures the raw interleaving, and
 `scripts/verify-lenses.ps1` checks both decoded tiles against the shared remote
 endpoint.
 
-Live dual-lens does not extend to the card. The camera keeps one catalogue
-(channel 0) and writes `%timestamp_1.mp4` beside each clip, but every local
-open -- MISS playback (`0x10D`) and RDT file fetch (command 1) -- looks the
-time up in that channel's index. Channel 1's index is empty, so the second
-picture cannot be played from Camera SD card. View -> Camera SD card therefore
-lists the camera once, as its main lens.
+Dual-lens extends to the card, but not at the channel number the live stream
+uses. Both a MISS playback (`0x10D`) and an RDT file fetch (command 1) look the
+timestamp up in the requested *storage* channel's index, and the two numbering
+schemes are not the same: the second lens streams as channel 1 and records to
+channel 10.
+
+That is stated plainly in the firmware. `init_mi_local_storage` creates exactly
+two recording pipelines, `mi_local_storage_create(v_chn, a_chn)` as `(0, 4)` and
+`(10, 14)`, and gates them on the NVM keys `power_ptz` and `power_no_ptz` -- the
+motorised main lens and the fixed second one. Channel 1 is a slot the camera
+never allocates, so its index is empty; asking for it returns no bytes, which
+for a long time was read here as "the camera will not open that picture" rather
+than as "we asked for a channel that does not exist". Channel 10's index is a
+full fortnight, twenty thousand clips, exactly like channel 0's.
+
+The second lens is fetched as files rather than streamed. `0x10D` does accept
+it -- the camera answers `filefound` with `vchn: 10` -- but not dependably:
+four attempts against a CW500 gave one clean play, one `filefound` that then
+sent no frames, one unanswered request and one dropped session. RDT command 1
+answered every time with a complete MP4, so that is the path the second tile
+takes. View -> Camera SD card lists both tiles.
+
+Getting the playback request itself right matters as much as the channel. The
+firmware has two parsers for `0x10D`: without a `channel` key it reads
+`starttime`, `endtime`, `offset` and `speed` as plain numbers, and with one it
+requires all five to be arrays, walked together by index, every element an
+integer. It abandons the request at the first element that is not, without
+replying. This project used to array only `channel`, which is why naming a lens
+produced silence -- the same silence an unsupported command produces, which is
+what made the limitation look like the camera's.
 
 ## Pan and tilt
 
@@ -535,11 +560,13 @@ for working out a model that does not respond to the payload above.
   streams a recording in real time. The bar under the picture and the arrow keys
   jump to another clip's start; playing from a moment part-way through a clip
   still means playing that clip from its beginning.
-- **SD card playback is limited to the CW400 and the CW500's main lens.** The
-  catalogue request and the playback command came from those boards' firmware.
-  Other models are greyed out in the menu rather than offered and left blank. A
-  CW500's second live tile is not listed: the camera writes that picture to the
-  card but will not open it locally.
+- **SD card playback is limited to the CW400 and the CW500.** The catalogue
+  request and the playback command came from those boards' firmware. Other
+  models are greyed out in the menu rather than offered and left blank.
+- **A CW500's second lens plays from downloaded files, so it is not instant.**
+  The camera streams that picture only intermittently; it sends the file every
+  time. Each minute is fetched before it plays, and the next is fetched while
+  the current one runs, so the wait is at the start rather than between clips.
 - Cameras negotiating a transport other than CS2 (older TUTK-based models) are
   rejected with a clear message rather than silently failing.
 - Audio is mono, and playing it is one-way. There is no talkback.

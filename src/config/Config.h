@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -45,6 +46,16 @@ struct CameraConfig {
 // Models known to carry two independent lenses. Each shows up once in the device
 // list but streams two channels, so the picker offers both.
 [[nodiscard]] bool isDualLens(const std::string& model);
+
+// Which channel the camera files this lens's SD recordings under.
+//
+// Not the same numbering as the live stream's channel, and not derivable from
+// it. A CW500 records to storage channels 0 and 10: its firmware creates the
+// two with mi_local_storage_create(v_chn, a_chn) as (0, 4) and (10, 14), gated
+// by the NVM keys power_ptz and power_no_ptz -- the motorised main lens and the
+// fixed second one. Channel 1, which the obvious reading of "lens 2" suggests,
+// is a slot the firmware never allocates and whose index is empty.
+[[nodiscard]] uint32_t sdRecordingChannel(const std::string& model, const std::string& channel);
 
 // Regional CW300 variants use different model ids and slightly different MIoT
 // property numbers, but share the same single-lens MISS/CS2 media path.

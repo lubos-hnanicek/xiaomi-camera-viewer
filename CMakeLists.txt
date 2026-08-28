@@ -229,4 +229,20 @@ if(BUILD_TESTING)
         target_compile_options(recording_timeline_tests PRIVATE /W4 /permissive- /utf-8)
     endif()
     add_test(NAME recording_timeline COMMAND recording_timeline_tests)
+
+    # Config.cpp brings its own dependencies rather than the whole app: the
+    # channel mapping under test is model knowledge, and worth pinning because
+    # asking for the wrong channel fails silently.
+    add_executable(camera_channel_tests
+        tests/CameraChannelTests.cpp
+        src/config/Config.cpp
+        src/app/Log.cpp
+        src/util/Encoding.cpp)
+    target_include_directories(camera_channel_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(camera_channel_tests PRIVATE nlohmann_json crypt32 shell32)
+    if(MSVC)
+        target_compile_options(camera_channel_tests PRIVATE /W4 /permissive- /utf-8)
+    endif()
+    add_test(NAME camera_channel COMMAND camera_channel_tests)
 endif()

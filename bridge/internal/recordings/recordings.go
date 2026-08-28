@@ -27,12 +27,12 @@ import (
 // without a word, so a wrong number is indistinguishable from a camera that has
 // nothing to say.
 const (
-	// FileCommand asks for one recorded file by timestamp. The camera names
-	// files `%timestamp_%channel.mp4`. The first word of this payload is the
-	// timestamp; the word at offset 8 is the channel, but only a payload
-	// longer than 19 bytes is read that way, and only channel 0 has an index
-	// to look the time up in. Channel 1's file is on the card and this
-	// command still cannot reach it.
+	// FileCommand asks for one recorded file by timestamp. The first word of
+	// this payload is the timestamp; the word at offset 8 is the channel, but
+	// only a payload longer than 19 bytes is read that way, so a 12-byte body
+	// forces channel 0. record_find_record_info looks the timestamp up in that
+	// channel's index, which means the channel has to be one the camera
+	// records to: 0 and 10 on a CW500, and 1 is not one of them.
 	FileCommand = 1
 
 	// IndexCommand asks for the recording index: every clip on the card,
@@ -99,10 +99,11 @@ const (
 // JSON here puts its text where the channel belongs, which the camera reads as
 // a channel number in the hundreds of millions and refuses.
 //
-// Channel 0 is the only recording index that answers. A two-lens camera still
-// writes `%timestamp_1.mp4` beside each channel-0 file, but that picture has
-// no catalogue of its own: its index is empty, so FileCommand cannot look the
-// file up. The second lens is not marked in this table either.
+// The channel is a storage channel, and only the ones the camera actually
+// records to have an index. A CW500 uses 0 and 10, one per lens, each with its
+// own full catalogue; 1 and 2 answer with no bytes at all. The two catalogues
+// are independent, and their clip boundaries mostly do not coincide, so a start
+// from one is not a valid request against the other.
 func IndexRequest(channel uint32) []byte {
 	// Long enough that the camera reads the channel however it measures the
 	// message, and zero everywhere the format says nothing about.
@@ -118,9 +119,9 @@ func IndexRequest(channel uint32) []byte {
 // the channel from offset 0x10 (payload bytes 8..11) only when the payload is
 // longer than 19 bytes; a 12-byte body forces channel 0. That is the layout
 // that actually sends a file: record_find_record_info looks the timestamp up
-// in that channel's index, and only channel 0 has one. A 20-byte body with
-// channel 1 is acknowledged and then refused, because that index is empty
-// even though `%timestamp_1.mp4` exists on the card.
+// in that channel's index. Naming a channel the camera does not record to is
+// acknowledged and then refused, because that index is empty -- which is what
+// asking for channel 1 on a CW500 did, its second lens being channel 10.
 func FileRequest(timestamp, channel uint32) []byte {
 	payload := make([]byte, 12)
 	binary.LittleEndian.PutUint32(payload[0:], timestamp)
@@ -280,34 +281,65 @@ func InspectIndex(payload []byte) IndexInspect {
 // the request without answering if one is missing, which is why an incomplete
 // request looks exactly like a camera that ignores playback altogether.
 //
-// Lenses is for the two-lens models. Their firmware has two parsers:
+// Lenses is for the two-lens models. Their firmware has two parsers, and which
+// one runs is decided by whether `channel` is present at all:
 //
-//   - If `channel` is missing, it logs "chn no array" and reads starttime,
-//     endtime, offset and speed as scalars. That is the path that works here.
-//   - If `channel` is an array, those four fields must be arrays of ints too
-//     (sessionid, autoswitchtolive and avchannelmerge stay scalars), and it
-//     starts one playback per pair. On a CW500, channel 1 has no recording
-//     index, so streaming that picture is answered filenotfound. FileCommand
-//     cannot name `%timestamp_1.mp4` either; that file is on the card and
-//     this request still cannot reach it.
+//   - Without it, the camera logs "chn no array" and reads starttime, endtime,
+//     offset and speed as scalars. That is the single-picture path.
+//   - With it, all five of channel, starttime, endtime, offset and speed must
+//     be arrays, read in step by index; sessionid, autoswitchtolive and
+//     avchannelmerge stay scalars. It then starts one playback per position,
+//     and answers with one status per picture, each naming its own vchn.
+//
+// Every element must be a JSON integer. The parser walks the five arrays
+// together and abandons the request at the first element that is not, without
+// answering -- so a request that arrays only `channel` and leaves the rest
+// scalar draws silence, which is indistinguishable from a camera that does not
+// support playback at all. That was this function's bug, and it is why the
+// second lens looked unplayable rather than mis-asked.
+//
+// A lens here is a storage channel, not a live channel. On a CW500 they are 0
+// and 10; see sdRecordingChannel on the C++ side.
 func PlaybackRequest(id int, start, end int64, lenses []int) string {
 	fields := []string{
 		fmt.Sprintf(`"sessionid":%d`, id),
-		fmt.Sprintf(`"starttime":%d`, start),
-		fmt.Sprintf(`"endtime":%d`, end),
 		`"autoswitchtolive":1`,
-		`"offset":0`,
-		`"speed":1`,
 		`"avchannelmerge":1`,
 	}
 
-	if len(lenses) > 0 {
-		parts := make([]string, len(lenses))
-		for i, lens := range lenses {
-			parts[i] = fmt.Sprint(lens)
-		}
-		fields = append(fields, fmt.Sprintf(`"channel":[%s]`, strings.Join(parts, ",")))
+	if len(lenses) == 0 {
+		fields = append(fields,
+			fmt.Sprintf(`"starttime":%d`, start),
+			fmt.Sprintf(`"endtime":%d`, end),
+			`"offset":0`,
+			`"speed":1`,
+		)
+		return "{" + strings.Join(fields, ",") + "}"
 	}
+
+	// One position per lens, all five arrays the same length. The same instant
+	// is asked of each: a caller that wants different moments per picture would
+	// need a different shape here, and nothing needs that yet.
+	repeat := func(value string) string {
+		parts := make([]string, len(lenses))
+		for i := range parts {
+			parts[i] = value
+		}
+		return "[" + strings.Join(parts, ",") + "]"
+	}
+
+	channels := make([]string, len(lenses))
+	for i, lens := range lenses {
+		channels[i] = fmt.Sprint(lens)
+	}
+
+	fields = append(fields,
+		fmt.Sprintf(`"starttime":%s`, repeat(fmt.Sprint(start))),
+		fmt.Sprintf(`"endtime":%s`, repeat(fmt.Sprint(end))),
+		fmt.Sprintf(`"offset":%s`, repeat("0")),
+		fmt.Sprintf(`"speed":%s`, repeat("1")),
+		fmt.Sprintf(`"channel":[%s]`, strings.Join(channels, ",")),
+	)
 
 	return "{" + strings.Join(fields, ",") + "}"
 }

@@ -50,9 +50,12 @@ enum class SdState {
 //
 // The camera streams the recording over the same socket as the live picture,
 // in real time, and the only handle on it is the catalogue of clip start
-// times. That is what the CW400 and the CW500's main lens do. A CW500 also
-// writes a second file per timestamp, but that picture has no local open path:
-// channel 1's index is empty, so this player is not offered for that tile.
+// times. That is what the CW400 and the CW500's main lens do.
+//
+// A CW500's second lens keeps its own catalogue, under storage channel 10, and
+// is played by downloading each clip over RDT and decoding it here. Streaming
+// that channel works only intermittently; the file transfer does not, so the
+// second tile takes the slower path and gets the same controls.
 //
 // What it adds is knowing where in time the picture is. Streamed playback
 // restarts its timestamps at zero for every clip, and the moment on screen is
@@ -131,8 +134,8 @@ public:
     int64_t skipClip(int delta);
 
     // Downloads these clips as the camera stored them (MP4) into directory.
-    // Returns at once; watch status().saveMessage for progress. Channel 0 is
-    // the only index the camera will look up, so this is the main lens.
+    // Returns at once; watch status().saveMessage for progress. The clips come
+    // from this tile's own channel, so a second lens saves its own picture.
     void saveClips(std::vector<SdClip> clips, std::filesystem::path directory);
 
     // Render-thread side, exactly as StreamWorker's.

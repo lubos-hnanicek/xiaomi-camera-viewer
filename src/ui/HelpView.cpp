@@ -245,16 +245,17 @@ void drawRecordingAndSound() {
            "starts look arbitrary. The bar under the picture jumps to the clip covering the "
            "moment you choose; the camera then plays that clip from its beginning. Left and "
            "Right skip a whole clip.");
-    bullet("On a two-lens CW500, both pictures share one catalogue and a second file is written "
-           "at the same timestamps, but only the main lens can be played. The camera will not "
-           "stream or send the second picture: every local open looks the time up in that "
-           "channel's index, and the second channel's is empty. Live dual-lens still works; "
-           "this limit is the card, so Camera SD card lists one entry per camera rather than "
-           "one per tile.");
-    bullet("Only the CW400 and the CW500's main lens are offered. The requests were recovered "
-           "from the published firmware for those boards, and a camera that reads them "
-           "differently says nothing at all rather than refusing, so the rest are greyed out "
-           "instead of being left blank.");
+    bullet("A two-lens CW500 keeps a separate catalogue per lens, so Camera SD card lists both "
+           "tiles and each plays its own picture. Their clips do not line up: each lens starts "
+           "a new file where its own last one ended, so the same moment sits at different "
+           "starts on the two lists.");
+    bullet("The second lens is fetched clip by clip rather than streamed, so it pauses a moment "
+           "before each minute while the file arrives. That is deliberate: the camera will "
+           "stream that picture only intermittently, while it hands the file over every time.");
+    bullet("Only the CW400 and CW500 are offered. The requests were recovered from the "
+           "published firmware for those boards, and a camera that reads them differently says "
+           "nothing at all rather than refusing, so the rest are greyed out instead of being "
+           "left blank.");
     aside("Minutes the camera marked as containing a detection are labelled event. "
           "They are still one-minute files; the mark was packed into the same number as "
           "the length, which is why they once appeared as 316-second clips. "

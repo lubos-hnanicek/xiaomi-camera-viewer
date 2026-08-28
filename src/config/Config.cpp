@@ -113,6 +113,18 @@ bool isDualLens(const std::string& model) {
            model.find("500dh") != std::string::npos;
 }
 
+uint32_t sdRecordingChannel(const std::string& model, const std::string& channel) {
+    const bool secondary = !channel.empty() && channel != "0";
+    if (!secondary) {
+        return 0;
+    }
+    // Only the dual-lens models have a second recording channel at all, and
+    // 10 is the one this firmware family uses. Anything else keeps channel 0
+    // rather than inventing a number: a channel the camera does not record to
+    // has an empty index, which reads as a card with nothing on it.
+    return isDualLens(model) ? 10 : 0;
+}
+
 bool isCw300(const std::string& model) {
     // moc001 is the Chinese model and moc006 is the global/EU revision. Their
     // published MIoT specifications describe the same 2560x1440 single-lens

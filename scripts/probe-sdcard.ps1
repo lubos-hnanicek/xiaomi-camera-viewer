@@ -212,6 +212,15 @@ if ($Did) {
 
 Write-Host "==> $($device.name) [$($device.model)] did=$($device.did)" -ForegroundColor Cyan
 
+# The channel a lens records under is not the channel it streams under. A CW500
+# streams its second lens as 1 and records it as 10; channel 1 has no index at
+# all, so asking for it reads as a camera with an empty card. This mirrors
+# sdRecordingChannel in src/config/Config.cpp.
+$dual = $device.model -match 'hlmax|cw500|500dh'
+$secondary = $Lens -and $Lens -ne '0'
+$RecordChannel = if ($secondary -and $dual) { 10 } else { 0 }
+Write-Host ("    lens '{0}' records under storage channel {1}" -f $Lens, $RecordChannel) -ForegroundColor DarkGray
+
 $open = @{
     user_id   = $userId
     did       = $device.did
@@ -286,7 +295,7 @@ function Get-Frames {
 try {
     Write-Host "==> asking for the catalogue (this takes seconds)" -ForegroundColor Cyan
     $started = Get-Date
-    $answer = Invoke-Stream @{ method = 'recordings.list'; channel = 0 }
+    $answer = Invoke-Stream @{ method = 'recordings.list'; channel = $RecordChannel }
     $elapsed = (Get-Date) - $started
 
     if (-not $answer.ok) { throw "recordings.list failed: $($answer.error)" }

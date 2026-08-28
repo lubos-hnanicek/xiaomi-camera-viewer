@@ -118,32 +118,39 @@ int xmb_stream_read(void* handle, unsigned char* buf, int cap, XmbFrame* meta);
  * oldest first, as a Unix start time in seconds and a duration. `event` is set
  * when that minute contains a detection; the camera packs that mark into the
  * same word as the length, which is why a 60s clip can look like 316s if the
- * bit is not stripped. channel is 0 on every model known; a two-lens camera
- * still has only that one catalogue. A second file is written at the same
- * timestamps (`%timestamp_1.mp4`) but cannot be opened locally: both
- * recordings.file and playback.start look the time up in the requested
- * channel's index, and channel 1's is empty.
+ * bit is not stripped.
+ *
+ * channel is a storage channel, and only the ones a camera records to have an
+ * index. Single-lens models use 0. A two-lens CW500 uses 0 and 10 -- one full
+ * catalogue per lens, its firmware creating the pair as mi_local_storage_create
+ * (0, 4) and (10, 14). Channel 1, the obvious reading of "lens 2", is a slot
+ * the camera never allocates and answers with no bytes. The two catalogues are
+ * independent and their clip boundaries mostly differ, so a start taken from
+ * one is answered "not found" by the other.
  *
  * playback.start needs a clip's exact start, as the catalogue gave it. This is
  * not a seek. Clips begin at whatever second the one before them ended, so
  * their starts look arbitrary and cannot be computed; a camera holding a
  * fortnight of continuous footage answers "filenotfound" for a round minute, or
  * for any instant inside a clip that is not its first. `end` bounds how far
- * play continues and `lenses` picks a picture on the two-lens models. Empty
- * lets the camera choose, which on the CW500 is always the primary lens:
- * naming `channel` in the request as an array looks up an empty index and
- * answers filenotfound. The reply still reports that choice in `lens`.
+ * play continues and `lenses` picks a picture on the two-lens models, by
+ * storage channel. Empty lets the camera choose, which on the CW500 is always
+ * the primary lens; the reply reports that choice in `lens`.
+ *
+ * Naming the second lens here is accepted but not dependable: a CW500 answered
+ * one attempt with filefound and frames, another with filefound and no frames
+ * at all, a third with silence, and dropped the session on a fourth. Use
+ * recordings.file for that picture, which answered every time.
  *
  * The recording then arrives as ordinary frames through xmb_stream_read, so a
  * caller already reading frames need do nothing else -- but the camera stops
  * sending live video the moment it accepts, and playback.stop is what brings it
  * back.
  *
- * recordings.file downloads one MP4 by the catalogue start. Channel 0 is the
- * only index the camera will look up; a non-zero channel answers an empty ack
- * even when `%timestamp_1.mp4` is on the card. `path` is a temp file the
- * caller deletes. Call it off the UI thread; a minute of footage is a few
- * megabytes.
+ * recordings.file downloads one MP4 by the catalogue start, from the same
+ * channel that start came from. A channel the camera does not record to
+ * answers an empty ack. `path` is a temp file the caller deletes. Call it off
+ * the UI thread; a minute of footage is a few megabytes.
  *
  * recordings.list takes seconds: a full card's catalogue is around 170 kB
  * reassembled from a couple of hundred transport messages. Call it off the UI

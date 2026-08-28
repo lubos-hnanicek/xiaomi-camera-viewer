@@ -525,8 +525,10 @@ func (s *Session) Recordings(channel uint32) ([]recordings.Clip, error) {
 }
 
 // InspectIndex reports how the duration/flags word is populated, including
-// bits ParseIndex drops. A second lens marked in the same table would show up
-// here rather than as a second catalogue.
+// bits ParseIndex drops. It is also how a channel that the camera does not
+// record to is told from one that does: the first answers with no bytes at
+// all, the second with slots. That is what found the CW500's second lens on
+// channel 10 after channels 1 and 2 had both read as empty.
 func (s *Session) InspectIndex(channel uint32) (recordings.IndexInspect, error) {
 	payload, err := s.fetchIndex(channel)
 	if err != nil {
@@ -565,10 +567,10 @@ func (s *Session) fetchIndex(channel uint32) ([]byte, error) {
 }
 
 // fileAckWait is how long an acknowledgement without a body is allowed to
-// stand. Command 1 with channel 1 is answered with one 24-byte transport
-// frame (a 12-byte plaintext ack) because that lens has no recording index.
-// Waiting a minute for an MP4 that will not come made the player sit on
-// "Fetching the recording".
+// stand. Command 1 naming a channel the camera does not record to is answered
+// with one 24-byte transport frame (a 12-byte plaintext ack) and no file,
+// because that channel has no recording index. Waiting a minute for an MP4
+// that will not come made the player sit on "Fetching the recording".
 const fileAckWait = 8 * time.Second
 
 // fileTimeout is how long to wait once bytes are actually arriving.
@@ -576,12 +578,13 @@ const fileTimeout = 60 * time.Second
 
 // FetchRecording downloads one recorded MP4 (RDT command 1).
 //
-// A two-lens CW500 will not stream channel 1: that picture has no index, so
-// playback.start answers filenotfound. Command 1 looks the timestamp up in
-// the same index, so channel 1 is acknowledged with a 12-byte RDT reply and
-// no file. Channel 0 does send the MP4 (ftyp/iso5, one HEVC track). The
-// second file (`%timestamp_1.mp4`) is still on the card; this command cannot
-// name it.
+// channel is a storage channel, and the timestamp must come from that same
+// channel's index -- the two lenses of a CW500 (channels 0 and 10) keep
+// separate catalogues whose clip boundaries mostly differ, so a start taken
+// from one is answered "not found" by the other. Both send a complete MP4
+// (ftyp/iso5, one HEVC track and one Opus track). A channel the camera does
+// not record to, such as 1, is acknowledged with a 12-byte RDT reply and no
+// file.
 //
 // A missing file used to come back as a nil payload. That hid a dropped
 // transfer as "the camera no longer has that recording". Failure is now an
@@ -754,11 +757,16 @@ const playbackTimeout = 5 * time.Second
 // picture, so a caller that is already reading frames need do nothing else. The
 // camera stops sending live video the moment it accepts this.
 //
-// lenses picks a picture on the two-lens models, whose firmware wants an array
-// and refuses a bare number. Leaving it empty lets the camera choose, and it
-// names its choice in the status. On the CW500 that choice is always the
-// primary lens: sending the channel key as an array looks up an empty index
-// and is answered filenotfound. The second picture is FetchRecording.
+// lenses names storage channels on the two-lens models: 0 and 10 on a CW500,
+// not the live channel numbers. Leaving it empty lets the camera choose, and it
+// names its choice in the status, which on this firmware is always the primary
+// lens.
+//
+// Naming the second one is accepted -- the camera answers filefound with
+// vchn 10 -- but it is not dependable: repeated attempts also produced a
+// filefound that then sent no frames, an unanswered request and a dropped
+// session. FetchRecording over RDT is the reliable way to that picture, and is
+// what SdPlayer uses for it.
 func (s *Session) Play(start, end int64, lenses []int) (recordings.Status, error) {
 	return s.playback(recordings.PlaybackRequest(s.nextPlaybackID(), start, end, lenses))
 }

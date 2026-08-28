@@ -809,15 +809,11 @@ void App::drawMenuBar() {
 
             // One camera's card at a time, chosen here because the card belongs
             // to a camera rather than to the app. A dual-lens CW500 is two live
-            // tiles over one card; only the primary picture can be played, so
-            // the second tile is not listed.
+            // tiles over one card, and each lens has its own catalogue on it,
+            // so both are listed and each plays its own picture.
             if (ImGui::BeginMenu("Camera SD card", !config_.cameras.empty())) {
                 for (size_t i = 0; i < config_.cameras.size(); ++i) {
                     const CameraConfig& camera = config_.cameras[i];
-                    if (isDualLens(camera.model) && !camera.channel.empty() &&
-                        camera.channel != "0") {
-                        continue;
-                    }
                     const bool supported = sdPlaybackSupported(camera);
                     if (ImGui::MenuItem(camera.label().c_str(), nullptr, false, supported)) {
                         openSdPlayback(i);
@@ -1616,12 +1612,8 @@ bool App::sdPlaybackSupported(const CameraConfig& camera) {
     // nothing at all. Better to say a camera is not supported than to offer a
     // screen that will sit empty.
     //
-    // A dual-lens CW500 writes both pictures to the card, but every local open
-    // looks the time up in that channel's index. Channel 1's index is empty, so
-    // the second tile has nothing this screen can play.
-    if (isDualLens(camera.model) && !camera.channel.empty() && camera.channel != "0") {
-        return false;
-    }
+    // Both of a CW500's lenses qualify: each keeps its own catalogue on the
+    // card, the second under storage channel 10. See sdRecordingChannel.
     return camera.model.find("hlc8a") != std::string::npos ||
            camera.model.find("500dh") != std::string::npos;
 }

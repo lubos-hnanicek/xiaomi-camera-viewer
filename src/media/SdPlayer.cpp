@@ -1,7 +1,6 @@
 #include "media/SdPlayer.h"
 
 #include <algorithm>
-#include <charconv>
 #include <chrono>
 #include <exception>
 #include <format>
@@ -38,17 +37,14 @@ std::string playbackChannel(const CameraConfig& camera) {
     return camera.channel;
 }
 
+// Which channel the camera indexes and files this tile's recordings under.
+//
+// The live channel and the storage channel are different numbering: a CW500's
+// second lens streams as channel 1 and records to channel 10. Getting this
+// wrong is quiet rather than loud -- an unrecorded channel has an empty index,
+// so the card looks empty instead of misaddressed.
 uint32_t recordingFileChannel(const CameraConfig& camera) {
-    if (camera.channel.empty()) {
-        return 1;
-    }
-    unsigned int n = 1;
-    const char* first = camera.channel.data();
-    const char* last = first + camera.channel.size();
-    if (std::from_chars(first, last, n).ec != std::errc{} || n == 0) {
-        return 1;
-    }
-    return n;
+    return sdRecordingChannel(camera.model, camera.channel);
 }
 
 std::string utf8Of(const std::filesystem::path& path) {
@@ -222,8 +218,9 @@ void SdPlayer::run(D3D11Context* gpu) {
             continue; // the buffer was grown; this frame itself was dropped
         }
 
-        // If this tile were the second CW500 lens, the live frames on this
-        // socket would be the primary picture. Skip them: that is not playback.
+        // On the second CW500 lens the live frames on this socket are the
+        // primary picture. Skip them: that is not this tile's playback, which
+        // arrives as downloaded files instead.
         if (usesFilePlayback()) {
             continue;
         }
@@ -425,8 +422,11 @@ void SdPlayer::commandLoop() {
 void SdPlayer::loadCatalogue() {
     const auto started = std::chrono::steady_clock::now();
 
-    const Json answer =
-        Bridge::instance().streamCommand(stream(), {{"method", "recordings.list"}, {"channel", 0}});
+    // Each lens keeps its own catalogue, and their clip boundaries do not line
+    // up: on a CW500 only about 1,300 of some 20,500 starts are shared. So this
+    // has to be the tile's own channel, not channel 0 with the starts reused.
+    const Json answer = Bridge::instance().streamCommand(
+        stream(), {{"method", "recordings.list"}, {"channel", fileChannel()}});
 
     if (!responseOk(answer)) {
         setError(responseError(answer));
@@ -859,10 +859,15 @@ void SdPlayer::invalidatePicture() {
 }
 
 bool SdPlayer::usesFilePlayback() const {
-    // A CW500 writes `%timestamp_1.mp4` for the second picture, but FileCommand
-    // looks the time up in that channel's empty index and never sends the file.
-    // Camera SD card no longer offers this tile; the branch is kept so an old
-    // open cannot stream the other lens's live frames as if they were playback.
+    // The second lens is fetched clip by clip over RDT rather than streamed.
+    // Streaming it is not refused -- the camera answers a well-formed request
+    // with filefound and vchn 10 -- but it is not dependable: repeated attempts
+    // against a CW500 gave one clean play, one filefound that sent no frames
+    // at all, one silence and one dropped session. The file transfer answered
+    // every time and hands over a complete MP4, so that is what this uses.
+    //
+    // It also means the live frames arriving on this socket are the *other*
+    // lens, and the reader drops them rather than showing them as playback.
     return isDualLens(camera_.model) && !camera_.channel.empty() && camera_.channel != "0";
 }
 
@@ -1137,6 +1142,17 @@ void SdPlayer::playFile(const FileJob& job) {
         std::scoped_lock lock(statusMutex_);
         status_.requested = job.clip.start;
     }
+
+    // play() raises this so that frames still in flight from the live picture,
+    // or from the clip being left, cannot be shown as the recording that was
+    // just asked for. On the streamed path trackPosition lowers it when the
+    // camera's own frames start arriving. Nothing on this path went through
+    // trackPosition -- these frames come from a file that was downloaded after
+    // the request -- so it has to be lowered here, and this is the moment it is
+    // true: the decoder is open on the requested clip and everything it now
+    // produces belongs to it. Leaving it raised makes onDecodedFrame drop every
+    // frame, which looks exactly like a clip that plays with a blank picture.
+    awaitingFirstFrame_.store(false, std::memory_order_release);
 
     AVPacket* packet = av_packet_alloc();
     if (packet == nullptr) {

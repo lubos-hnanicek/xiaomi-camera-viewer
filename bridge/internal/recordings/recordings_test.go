@@ -229,16 +229,77 @@ func TestPlaybackRequestCarriesEveryRequiredField(t *testing.T) {
 
 func TestPlaybackRequestWritesLensesAsAnArray(t *testing.T) {
 	// The two-lens firmware refuses a bare number outright, logging
-	// "chn no array", so the brackets are not cosmetic. The rest of the
-	// request then has to be arrays as well; see PlaybackRequest.
+	// "chn no array", so the brackets are not cosmetic.
 	if got, want := PlaybackRequest(2, 1, 2, []int{0}), `"channel":[0]`; !contains(got, want) {
 		t.Errorf("body %s does not contain %s", got, want)
 	}
-	if got, want := PlaybackRequest(2, 1, 2, []int{0, 1}), `"channel":[0,1]`; !contains(got, want) {
+	if got, want := PlaybackRequest(2, 1, 2, []int{0, 10}), `"channel":[0,10]`; !contains(got, want) {
 		t.Errorf("body %s does not contain %s", got, want)
 	}
-	if got, want := PlaybackRequest(2, 1, 2, []int{1}), `"channel":[1]`; !contains(got, want) {
+	if got, want := PlaybackRequest(2, 1, 2, []int{10}), `"channel":[10]`; !contains(got, want) {
 		t.Errorf("body %s does not contain %s", got, want)
+	}
+}
+
+func TestPlaybackRequestArraysEveryPositionalFieldWithTheLenses(t *testing.T) {
+	// The array parser walks channel, starttime, endtime, offset and speed
+	// together by index and stops at the first element that is not an integer,
+	// without answering. Arraying only channel therefore draws silence, which
+	// is indistinguishable from a camera that cannot play back at all -- and it
+	// is what made the CW500's second lens look unplayable.
+	body := PlaybackRequest(2, 1787601603, 1787601663, []int{10})
+
+	for _, want := range []string{
+		`"starttime":[1787601603]`,
+		`"endtime":[1787601663]`,
+		`"offset":[0]`,
+		`"speed":[1]`,
+		`"channel":[10]`,
+	} {
+		if !contains(body, want) {
+			t.Errorf("body %s is missing %s", body, want)
+		}
+	}
+
+	// These three stay scalars whichever parser runs; arraying them is its own
+	// way of being ignored.
+	for _, want := range []string{`"sessionid":2`, `"autoswitchtolive":1`, `"avchannelmerge":1`} {
+		if !contains(body, want) {
+			t.Errorf("body %s is missing %s", body, want)
+		}
+	}
+}
+
+func TestPlaybackRequestGivesEveryLensItsOwnPosition(t *testing.T) {
+	// One playback is started per position, so the five arrays have to be the
+	// same length. A short one leaves a lens reading past the end.
+	body := PlaybackRequest(2, 100, 160, []int{0, 10})
+
+	for _, want := range []string{
+		`"starttime":[100,100]`,
+		`"endtime":[160,160]`,
+		`"offset":[0,0]`,
+		`"speed":[1,1]`,
+		`"channel":[0,10]`,
+	} {
+		if !contains(body, want) {
+			t.Errorf("body %s is missing %s", body, want)
+		}
+	}
+}
+
+func TestPlaybackRequestKeepsScalarsWithoutLenses(t *testing.T) {
+	// Without a channel key the camera takes the other parser, which reads
+	// these four as plain numbers and would refuse them as arrays.
+	body := PlaybackRequest(2, 100, 160, nil)
+
+	for _, want := range []string{`"starttime":100`, `"endtime":160`, `"offset":0`, `"speed":1`} {
+		if !contains(body, want) {
+			t.Errorf("body %s is missing %s", body, want)
+		}
+	}
+	if contains(body, "[") {
+		t.Errorf("body %s uses an array where the scalar parser is wanted", body)
 	}
 }
 
