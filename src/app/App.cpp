@@ -821,7 +821,7 @@ void App::drawMenuBar() {
                     if (!supported) {
                         ImGui::SetItemTooltip(
                             "This model's card has not been worked out yet. Only the "
-                            "CW400 and CW500 answer the requests this build sends.");
+                            "CW400, CW500 and global CW300 answer the requests this build sends.");
                     }
                 }
                 ImGui::EndMenu();
@@ -1614,8 +1614,10 @@ bool App::sdPlaybackSupported(const CameraConfig& camera) {
     //
     // Both of a CW500's lenses qualify: each keeps its own catalogue on the
     // card, the second under storage channel 10. See sdRecordingChannel.
+    // moc006 (CW300 global/EU) verificada contra hardware con probe-sdcard.ps1: catálogo y reproducción responden igual que en la CW400; moc001 (China) sigue sin probar
     return camera.model.find("hlc8a") != std::string::npos ||
-           camera.model.find("500dh") != std::string::npos;
+           camera.model.find("500dh") != std::string::npos ||
+           camera.model == "mxiang.camera.moc006";
 }
 
 void App::openSdPlayback(size_t cameraIndex) {

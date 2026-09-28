@@ -28,7 +28,7 @@ The pictures in the tiles are stand-ins rather than real camera output.
   HDR, image flip, motion detection and sensitivity, tracking, fill light,
   siren, indicator LED, recording mode and SD card status
 - Playback of the footage on a camera's own SD card, browsed by day, hour and
-  clip, on the CW400 and on both lenses of the CW500
+  clip, on the CW400, the global CW300 and both lenses of the CW500
 - Both lenses of a dual-lens CW500 as independent tiles over one camera session
 - Automatic reconnection with backoff when a camera drops the session
 - Sign-in handles captchas and two-step verification; the resulting token is
@@ -236,10 +236,14 @@ rules rather than this program's:
   doing rather than a preference: it will stream that picture only
   intermittently, while it hands the file over every time.
 
-Only the CW400 and the CW500 are offered. The requests were recovered from
-IMILAB's published firmware for those two boards, and a model that reads them
-differently does not fail politely: it says nothing at all. Other cameras are
-listed but greyed out rather than being allowed to sit on an empty screen.
+Only the CW400, the CW500 and the global/EU CW300 (`mxiang.camera.moc006`) are
+offered. The requests were recovered from IMILAB's published firmware for the
+first two boards, and a model that reads them differently does not fail
+politely: it says nothing at all. The CW300 was added after
+`scripts/probe-sdcard.ps1` showed a real one answering the same requests: a
+catalogue of about ten thousand clips in under a second, and `filefound`
+followed by frames at real-time rate. Other cameras are listed but greyed out
+rather than being allowed to sit on an empty screen.
 
 Three consequences of recording the stream rather than a re-encode of it. A file
 can only begin on a keyframe, so recording starts within a second or two of
@@ -572,9 +576,11 @@ for working out a model that does not respond to the payload above.
   streams a recording in real time. The bar under the picture and the arrow keys
   jump to another clip's start; playing from a moment part-way through a clip
   still means playing that clip from its beginning.
-- **SD card playback is limited to the CW400 and the CW500.** The catalogue
-  request and the playback command came from those boards' firmware. Other
-  models are greyed out in the menu rather than offered and left blank.
+- **SD card playback is limited to the CW400, the CW500 and the global CW300.**
+  The requests came from the first two boards' firmware, and the CW300 was
+  confirmed by running them against real hardware. The China CW300 (`moc001`)
+  and other models are greyed out in the menu rather than offered and left
+  blank.
 - **A CW500's second lens plays from downloaded files, so it is not instant.**
   The camera streams that picture only intermittently; it sends the file every
   time. Each minute is fetched before it plays, and the next is fetched while
