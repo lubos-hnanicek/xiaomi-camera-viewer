@@ -40,8 +40,18 @@ func Dial(host, transport string) (*Conn, error) {
 		channels: [4]*dataChannel{
 			newDataChannel(0, 10), nil, newDataChannel(250, 100), nil,
 		},
+		closed: make(chan struct{}),
 	}
 	go c.worker()
+	if isTCP {
+		// On its own timer rather than piggybacked on incoming media: a camera
+		// whose stream has a gap of more than a second or two would otherwise see
+		// no ping at all, since the old code only sent one in reaction to a data
+		// message arriving. The comment it replaced already said what happens
+		// without it -- the camera drops the session -- which is what an
+		// intermittent CW300 stream was doing to itself.
+		go c.keepaliveLoop()
+	}
 	return c, nil
 }
 
@@ -71,6 +81,10 @@ type Conn struct {
 
 	cmdMu  sync.Mutex
 	cmdAck func()
+
+	// closed is closed once the worker's read loop returns, which is what stops
+	// keepaliveLoop from writing to a connection that is going away.
+	closed chan struct{}
 }
 
 // Unhandled reports, per channel, how much arrived that this transport has no
@@ -238,9 +252,8 @@ func (c *Conn) worker() {
 	defer func() {
 		c.channels[0].Close()
 		c.channels[2].Close()
+		close(c.closed)
 	}()
-
-	var keepaliveTS time.Time // TCP only
 
 	buf := make([]byte, maxCS2Frame)
 
@@ -287,13 +300,6 @@ func (c *Conn) worker() {
 			}
 
 			if c.isTCP {
-				// The official Mi Home app pings about once a second on TCP and
-				// the camera drops the session without it.
-				if now := time.Now(); now.After(keepaliveTS) {
-					_, _ = c.Conn.Write([]byte{magic, msgPing, 0, 0})
-					keepaliveTS = now.Add(time.Second)
-				}
-
 				err = channel.Push(buf[8:n])
 			} else {
 				var pushed int
@@ -319,6 +325,26 @@ func (c *Conn) worker() {
 			if c.cmdAck != nil {
 				c.cmdAck()
 			}
+		}
+	}
+}
+
+// keepaliveLoop pings the camera about once a second over TCP, for as long as
+// the connection lives. The official Mi Home app does the same and the camera
+// drops the session without it, so this cannot wait for an excuse: a stream
+// with any gap in its own traffic must still be pinged on schedule.
+func (c *Conn) keepaliveLoop() {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if _, err := c.Conn.Write([]byte{magic, msgPing, 0, 0}); err != nil {
+				return
+			}
+		case <-c.closed:
+			return
 		}
 	}
 }

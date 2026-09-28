@@ -28,7 +28,7 @@ The pictures in the tiles are stand-ins rather than real camera output.
   HDR, image flip, motion detection and sensitivity, tracking, fill light,
   siren, indicator LED, recording mode and SD card status
 - Playback of the footage on a camera's own SD card, browsed by day, hour and
-  clip, on the CW400 and on both lenses of the CW500
+  clip, on the CW400, the global CW300 and both lenses of the CW500
 - Both lenses of a dual-lens CW500 as independent tiles over one camera session
 - Automatic reconnection with backoff when a camera drops the session
 - Sign-in handles captchas and two-step verification; the resulting token is
@@ -236,10 +236,14 @@ rules rather than this program's:
   doing rather than a preference: it will stream that picture only
   intermittently, while it hands the file over every time.
 
-Only the CW400 and the CW500 are offered. The requests were recovered from
-IMILAB's published firmware for those two boards, and a model that reads them
-differently does not fail politely: it says nothing at all. Other cameras are
-listed but greyed out rather than being allowed to sit on an empty screen.
+Only the CW400, the CW500 and the global/EU CW300 (`mxiang.camera.moc006`) are
+offered. The requests were recovered from IMILAB's published firmware for the
+first two boards, and a model that reads them differently does not fail
+politely: it says nothing at all. The CW300 was added after
+`scripts/probe-sdcard.ps1` showed a real one answering the same requests: a
+catalogue of about ten thousand clips in under a second, and `filefound`
+followed by frames at real-time rate. Other cameras are listed but greyed out
+rather than being allowed to sit on an empty screen.
 
 Three consequences of recording the stream rather than a re-encode of it. A file
 can only begin on a keyframe, so recording starts within a second or two of
@@ -387,6 +391,7 @@ guessed:
 | --- | --- | --- | --- |
 | CW400 `isa.camera.hlc8a` | 640x360 | connects, sends nothing | 2560x1440 |
 | CW500 `isa.camera.500dh` | 640x360 | 640x360 | 2560x1440 |
+| CW300 global/EU `mxiang.camera.moc006` | 848x480 | 848x480 | 2560x1440 |
 
 If a camera not in the table gives no picture or a small one on **High**, pick a
 numbered profile under **Override** in the Cameras view. `scripts/probe-quality.ps1`
@@ -398,8 +403,18 @@ The Chinese `mxiang.camera.moc001` and global/EU `mxiang.camera.moc006` CW300
 variants are recognised. Their published specifications describe a
 single-channel 2560x1440 camera using H.265 and Opus over MISS, and a working
 [go2rtc CW300 deployment](https://github.com/justi/xiaomi-cw300-unifi) uses the
-normal profile 2. The viewer therefore selects profile 2 for **High**, while
-keeping the numbered overrides available.
+normal profile 2.
+
+A hardware sweep against a real global/EU CW300 (`scripts/probe-quality.ps1`,
+every profile 0 through 5) found that profiles 0-2 -- including profile 2, the
+external deployment's default and what this viewer used to select for
+**High** -- give only 848x480. Profiles 3 and 5 give the full 2560x1440 over
+the ordinary `cs2+tcp` transport, and profile 4 gives that same 2560x1440 but
+negotiates `cs2+udp` instead, which is worth knowing if a network only lets
+one of the two through. The viewer now selects profile 3 for **High** on that
+model, the same relationship as the CW400 and CW500. The China variant has not
+had its own sweep and keeps the old default until it does; the numbered
+overrides remain available either way.
 
 The settings panel uses separate MIoT maps transcribed from the
 [moc001](https://home.miot-spec.com/spec/mxiang.camera.moc001) and
@@ -408,13 +423,14 @@ This matters because several CW300 property numbers mean something different on
 the CW400/CW500 map, and the two CW300 regions even use different property
 numbers for AI detection.
 
-No CW300 has been tested with this project yet. Live video, audio and the
-published cloud settings have strong protocol evidence; pan and tilt are less
+Live video and audio are now confirmed against a real global/EU CW300: H.265
+at 2560x1440 on profile 3, Opus audio, and a session that holds up over the
+same TCP keepalive the CW400 and CW500 rely on. Pan and tilt are still less
 certain. The control pad sends the same encrypted MISS `0x112`
 `{"operation":N}` steps verified on the CW400 and CW500, but there is no public
-CW300 capture confirming that payload. `scripts/probe-quality.ps1`,
-`scripts/probe-audio.ps1` and `scripts/probe-ptz.ps1` are the hardware
-acceptance tests when a camera becomes available.
+CW300 capture confirming that payload, and no hardware run here has exercised
+it yet. `scripts/probe-ptz.ps1` is the acceptance test for that. The China
+variant has had none of this run against it yet.
 
 ## Experimental CW700S support
 
@@ -549,9 +565,9 @@ for working out a model that does not respond to the payload above.
   ignored. The picture keeps arriving, so this looks like broken pan and tilt
   rather than a camera that is busy. The app will not run twice for the same
   reason: launching it again brings the running copy to the front instead.
-- **CW300 support is provisional.** Its model ids, codecs, profile and settings
-  layout come from public specifications and working go2rtc deployments, but
-  its stream and motor controls have not been exercised against hardware here.
+- **CW300 support is provisional.** Stream and audio are confirmed against a
+  real global/EU CW300; its motor controls have not been exercised against
+  hardware here, and the China variant has had no hardware run of any kind.
 - **CW700S support is provisional.** Its model id, transport, codec and settings
   layout come from public sources, but its stream, audio, quality and motor
   controls have not been exercised against hardware here. The viewer exposes
@@ -560,9 +576,11 @@ for working out a model that does not respond to the payload above.
   streams a recording in real time. The bar under the picture and the arrow keys
   jump to another clip's start; playing from a moment part-way through a clip
   still means playing that clip from its beginning.
-- **SD card playback is limited to the CW400 and the CW500.** The catalogue
-  request and the playback command came from those boards' firmware. Other
-  models are greyed out in the menu rather than offered and left blank.
+- **SD card playback is limited to the CW400, the CW500 and the global CW300.**
+  The requests came from the first two boards' firmware, and the CW300 was
+  confirmed by running them against real hardware. The China CW300 (`moc001`)
+  and other models are greyed out in the menu rather than offered and left
+  blank.
 - **A CW500's second lens plays from downloaded files, so it is not instant.**
   The camera streams that picture only intermittently; it sends the file every
   time. Each minute is fetched before it plays, and the next is fetched while
