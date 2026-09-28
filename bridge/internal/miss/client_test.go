@@ -25,13 +25,16 @@ func TestResolveQuality(t *testing.T) {
 		{"c200 hd", ModelC200, "hd", "3"},
 		{"c300 hd", ModelC300, "hd", "3"},
 
-		// A published CW300 go2rtc setup works without a subtype override;
-		// upstream's default is profile 2. Both regional ids keep that profile
-		// until a hardware sweep can replace the external evidence.
+		// A published CW300 go2rtc setup works without a subtype override on
+		// profile 2, which is what this bridge used to default to as well. A
+		// hardware sweep against a real global/EU CW300 (scripts/probe-quality.ps1)
+		// found that profile 2 gives only 848x480, while profile 3 gives the full
+		// 2560x1440 -- so that model now matches the CW400/CW500 mapping instead.
+		// The China variant has not had its own sweep and keeps the old default.
 		{"cw300 china hd", ModelMoc001, "hd", "2"},
 		{"cw300 china default", ModelMoc001, "", "2"},
-		{"cw300 global hd", ModelMoc006, "hd", "2"},
-		{"cw300 global default", ModelMoc006, "", "2"},
+		{"cw300 global hd", ModelMoc006, "hd", "3"},
+		{"cw300 global default", ModelMoc006, "", "3"},
 
 		// No hardware profile sweep has been published for the CW700S. Keep the
 		// ordinary MISS default until scripts/probe-quality.ps1 can measure one.

@@ -387,6 +387,7 @@ guessed:
 | --- | --- | --- | --- |
 | CW400 `isa.camera.hlc8a` | 640x360 | connects, sends nothing | 2560x1440 |
 | CW500 `isa.camera.500dh` | 640x360 | 640x360 | 2560x1440 |
+| CW300 global/EU `mxiang.camera.moc006` | 848x480 | 848x480 | 2560x1440 |
 
 If a camera not in the table gives no picture or a small one on **High**, pick a
 numbered profile under **Override** in the Cameras view. `scripts/probe-quality.ps1`
@@ -398,8 +399,18 @@ The Chinese `mxiang.camera.moc001` and global/EU `mxiang.camera.moc006` CW300
 variants are recognised. Their published specifications describe a
 single-channel 2560x1440 camera using H.265 and Opus over MISS, and a working
 [go2rtc CW300 deployment](https://github.com/justi/xiaomi-cw300-unifi) uses the
-normal profile 2. The viewer therefore selects profile 2 for **High**, while
-keeping the numbered overrides available.
+normal profile 2.
+
+A hardware sweep against a real global/EU CW300 (`scripts/probe-quality.ps1`,
+every profile 0 through 5) found that profiles 0-2 -- including profile 2, the
+external deployment's default and what this viewer used to select for
+**High** -- give only 848x480. Profiles 3 and 5 give the full 2560x1440 over
+the ordinary `cs2+tcp` transport, and profile 4 gives that same 2560x1440 but
+negotiates `cs2+udp` instead, which is worth knowing if a network only lets
+one of the two through. The viewer now selects profile 3 for **High** on that
+model, the same relationship as the CW400 and CW500. The China variant has not
+had its own sweep and keeps the old default until it does; the numbered
+overrides remain available either way.
 
 The settings panel uses separate MIoT maps transcribed from the
 [moc001](https://home.miot-spec.com/spec/mxiang.camera.moc001) and
@@ -408,13 +419,14 @@ This matters because several CW300 property numbers mean something different on
 the CW400/CW500 map, and the two CW300 regions even use different property
 numbers for AI detection.
 
-No CW300 has been tested with this project yet. Live video, audio and the
-published cloud settings have strong protocol evidence; pan and tilt are less
+Live video and audio are now confirmed against a real global/EU CW300: H.265
+at 2560x1440 on profile 3, Opus audio, and a session that holds up over the
+same TCP keepalive the CW400 and CW500 rely on. Pan and tilt are still less
 certain. The control pad sends the same encrypted MISS `0x112`
 `{"operation":N}` steps verified on the CW400 and CW500, but there is no public
-CW300 capture confirming that payload. `scripts/probe-quality.ps1`,
-`scripts/probe-audio.ps1` and `scripts/probe-ptz.ps1` are the hardware
-acceptance tests when a camera becomes available.
+CW300 capture confirming that payload, and no hardware run here has exercised
+it yet. `scripts/probe-ptz.ps1` is the acceptance test for that. The China
+variant has had none of this run against it yet.
 
 ## Experimental CW700S support
 
@@ -549,9 +561,9 @@ for working out a model that does not respond to the payload above.
   ignored. The picture keeps arriving, so this looks like broken pan and tilt
   rather than a camera that is busy. The app will not run twice for the same
   reason: launching it again brings the running copy to the front instead.
-- **CW300 support is provisional.** Its model ids, codecs, profile and settings
-  layout come from public specifications and working go2rtc deployments, but
-  its stream and motor controls have not been exercised against hardware here.
+- **CW300 support is provisional.** Stream and audio are confirmed against a
+  real global/EU CW300; its motor controls have not been exercised against
+  hardware here, and the China variant has had no hardware run of any kind.
 - **CW700S support is provisional.** Its model id, transport, codec and settings
   layout come from public sources, but its stream, audio, quality and motor
   controls have not been exercised against hardware here. The viewer exposes
