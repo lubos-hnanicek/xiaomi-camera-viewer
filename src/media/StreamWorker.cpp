@@ -259,6 +259,18 @@ bool StreamWorker::session(D3D11Context& gpu) {
         XV_WARN("{}: no audio arrived, although the session asked for it", camera_.label());
     }
 
+    // Asked for before the handle closes, since closeStream invalidates it. This
+    // is what used to make "session ended" indistinguishable from a camera that
+    // simply went quiet: the bridge knew why the read failed, but nothing above
+    // it ever asked.
+    std::string endReason;
+    if (!stopping_.load(std::memory_order_acquire)) {
+        const Json stats = Bridge::instance().streamCommand(stream, Json{{"method", "stats"}});
+        if (responseOk(stats)) {
+            endReason = stats.value("error", std::string());
+        }
+    }
+
     // A file is finished with the session that filled it, so a reconnect starts
     // a new one rather than splicing two different sessions into one timeline.
     notifyGlobalSessionEnded();
@@ -270,7 +282,11 @@ bool StreamWorker::session(D3D11Context& gpu) {
     Bridge::instance().closeStream(stream);
 
     if (!stopping_.load(std::memory_order_acquire)) {
-        XV_INFO("{}: session ended", camera_.label());
+        if (!endReason.empty()) {
+            XV_INFO("{}: session ended: {}", camera_.label(), endReason);
+        } else {
+            XV_INFO("{}: session ended", camera_.label());
+        }
     }
 
     return sawVideo;

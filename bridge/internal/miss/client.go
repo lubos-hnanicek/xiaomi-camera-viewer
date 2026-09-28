@@ -72,6 +72,9 @@ const (
 //	                          3 gives 2560x1440
 //	CW500  isa.camera.500dh   2 gives the 640x360 substream,
 //	                          3 gives 2560x1440
+//	CW300  mxiang.camera.moc006 (global/EU)   0-2 give 848x480,
+//	                          3 and 5 give 2560x1440 over cs2+tcp, 4 gives
+//	                          2560x1440 too but negotiates cs2+udp instead
 //
 // The CW400 behaviour matches go2rtc#2074 and go2rtc#2313.
 const (
@@ -244,13 +247,18 @@ func resolveQuality(model, quality string) string {
 		// Most cameras call 2 their high quality. A few expose a better 3, and
 		// on others 3 has broken codec parameters, so this is per-model.
 		switch model {
-		case ModelC200, ModelC300, ModelHLC8, ModelHLC8A, Model500DH, ModelMod11:
+		case ModelC200, ModelC300, ModelHLC8, ModelHLC8A, Model500DH, ModelMod11, ModelMoc006:
+			// Measured against a real global/EU CW300 (see scripts/probe-quality.ps1):
+			// profile 2 (the external go2rtc deployment's default, and this bridge's
+			// old default) gives only 848x480, profile 3 gives the full 2560x1440.
 			return "3"
-		case ModelMoc001, ModelMoc006, Model700SA:
+		case ModelMoc001, Model700SA:
 			// A working CW300 go2rtc deployment uses its default profile, and
 			// upstream also leaves the untested CW700S at that default. Keep
 			// profile 2 explicit so a future fallback change does not silently
-			// move either provisional model.
+			// move either provisional model. The China CW300 has not had its own
+			// hardware sweep, so it keeps this default even though the global/EU
+			// variant above has moved off it.
 			return "2"
 		default:
 			return "2"
