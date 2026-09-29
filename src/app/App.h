@@ -204,6 +204,14 @@ public:
     bool fullscreenTile() const { return fullscreenTile_; }
     void setFullscreenTile(bool value) { fullscreenTile_ = value; }
 
+    // The whole window, borderless and covering the monitor edge to edge. It
+    // only changes the window: what fills it is still up to fullscreenTile, so
+    // the grid stays a grid and a focused camera stays focused, and F keeps
+    // switching between the two while fullscreen. F11 toggles it and Escape also
+    // leaves it; see handleGlobalKeys.
+    bool fullscreen() const { return fullscreen_; }
+    void setFullscreen(bool value);
+
 private:
     static LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     LRESULT handleMessage(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -281,6 +289,10 @@ private:
 
     int selected_ = -1;
     bool fullscreenTile_ = false;
+    // Where the window was before entering fullscreen, so leaving it puts the
+    // window back exactly where (and however maximized) it was.
+    bool fullscreen_ = false;
+    WINDOWPLACEMENT fullscreenRestore_{};
     bool showLogWindow_ = false;
     bool showHelpWindow_ = false;
     int playbackSelected_ = 0;
