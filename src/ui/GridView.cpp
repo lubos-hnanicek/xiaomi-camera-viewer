@@ -328,9 +328,8 @@ void handleKeys(App& app, size_t reachable) {
     auto& streams = app.streams();
     const int selected = app.selected();
 
-    if (app.fullscreenTile() && ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-        app.setFullscreenTile(false);
-    }
+    // Escape is handled in App::handleGlobalKeys, alongside the window-level
+    // fullscreen it has to take priority over.
     if (ImGui::IsKeyPressed(ImGuiKey_F)) {
         app.setFullscreenTile(!app.fullscreenTile());
     }
@@ -483,8 +482,13 @@ void drawGridView(App& app) {
         liveViewZoomState().tile = -1;
     }
 
-    drawToolbar(app);
-    ImGui::Dummy(ImVec2(0, 6));
+    // The toolbar has nowhere useful to go once the window itself has no menu
+    // bar either, so fullscreen drops it too rather than leaving one lone bar
+    // floating over the picture it was supposed to get out of the way of.
+    if (!app.fullscreen()) {
+        drawToolbar(app);
+        ImGui::Dummy(ImVec2(0, 6));
+    }
 
     auto& streams = app.streams();
 

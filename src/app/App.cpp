@@ -296,6 +296,12 @@ LRESULT App::handleMessage(HWND window, UINT message, WPARAM wParam, LPARAM lPar
         break;
 
     case WM_NCHITTEST:
+        // A fullscreen window is sized to the exact monitor bounds, so the
+        // ordinary resize-border hit test would otherwise still fire right at
+        // the screen edge.
+        if (fullscreen_) {
+            return HTCLIENT;
+        }
         return frameless::hitTest(window, POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)},
                                   caption_);
 
@@ -455,6 +461,13 @@ void App::rememberPlacement() {
         return; // gone already, so last time's position stays saved
     }
 
+    // A window covering the monitor for fullscreen is not a position to reopen
+    // at; what a next launch wants is where fullscreen was entered from, which
+    // leaving it now puts the window back at.
+    if (fullscreen_) {
+        setFullscreen(false);
+    }
+
     WINDOWPLACEMENT placement{};
     placement.length = sizeof(placement);
     if (::GetWindowPlacement(window_, &placement) == 0) {
@@ -487,6 +500,58 @@ void App::rememberPlacement() {
     config_.window.maximized =
         placement.showCmd == SW_SHOWMAXIMIZED ||
         (placement.showCmd == SW_SHOWMINIMIZED && (placement.flags & WPF_RESTORETOMAXIMIZED) != 0);
+}
+
+// Fullscreen is a plain, unzoomed window sized to the exact monitor bounds
+// rather than Windows' own maximize: maximize only ever covers the work area
+// (clientRectFor deliberately gives the taskbar its edge back), and this wants
+// every pixel including that one. Leaving the window unzoomed also keeps
+// clientRectFor's simpler branch, which hands back whatever rect it is given
+// unchanged, so the client area becomes exactly the monitor rather than the
+// monitor minus whatever the zoomed branch reserves.
+void App::setFullscreen(bool value) {
+    if (value == fullscreen_ || window_ == nullptr) {
+        return;
+    }
+    fullscreen_ = value;
+
+    // Windows 11 rounds a top-level window's corners by default, which would
+    // otherwise leave a sliver of desktop showing through at every edge of a
+    // window sized to exactly the monitor.
+    const DWORD cornerPreference = fullscreen_ ? 1 /* DWMWCP_DONOTROUND */ : 0 /* DWMWCP_DEFAULT */;
+    ::DwmSetWindowAttribute(window_, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &cornerPreference,
+                            sizeof(cornerPreference));
+
+    if (!fullscreen_) {
+        ::SetWindowPlacement(window_, &fullscreenRestore_);
+        ::SetWindowPos(window_, nullptr, 0, 0, 0, 0,
+                       SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        return;
+    }
+
+    fullscreenRestore_.length = sizeof(fullscreenRestore_);
+    ::GetWindowPlacement(window_, &fullscreenRestore_);
+
+    MONITORINFO monitor{};
+    monitor.cbSize = sizeof(monitor);
+    if (::GetMonitorInfoW(::MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST), &monitor) == 0) {
+        // Nothing to size the window to, so this is not becoming fullscreen
+        // after all.
+        fullscreen_ = false;
+        return;
+    }
+
+    // SetWindowPos alone does not clear WS_MAXIMIZE, so a window that was
+    // maximized would otherwise still read as zoomed afterwards and send
+    // clientRectFor into its work-area branch instead of taking the monitor
+    // rect given below unchanged.
+    if (::IsZoomed(window_) != 0) {
+        ::ShowWindow(window_, SW_RESTORE);
+    }
+
+    const RECT& r = monitor.rcMonitor;
+    ::SetWindowPos(window_, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
+                   SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 // --- ImGui ------------------------------------------------------------------
@@ -661,7 +726,9 @@ void App::frame() {
     ImGui::NewFrame();
 
     handleGlobalKeys();
-    drawMenuBar();
+    if (!fullscreen_) {
+        drawMenuBar();
+    }
 
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
@@ -746,6 +813,20 @@ void App::handleGlobalKeys() {
     if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_O)) {
         openRecordingDialog();
     }
+    if (ImGui::IsKeyPressed(ImGuiKey_F11, false)) {
+        setFullscreen(!fullscreen_);
+    }
+    // Escape unwinds one level at a time: out of fullscreen first, then out of
+    // tile focus. Both are checked here rather than one in GridView, so a single
+    // press while both are on cannot fire both in the same frame and skip past
+    // the tile the window was made fullscreen from.
+    if (!ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        if (fullscreen_) {
+            setFullscreen(false);
+        } else if (fullscreenTile_) {
+            fullscreenTile_ = false;
+        }
+    }
     if (screen_ == Screen::Grid && !ImGui::GetIO().WantTextInput &&
         ImGui::IsKeyChordPressed(ImGuiMod_Shift | ImGuiKey_R)) {
         toggleGlobalRecording();
@@ -828,6 +909,9 @@ void App::drawMenuBar() {
             }
 
             ImGui::Separator();
+            if (ImGui::MenuItem("Fullscreen", "F11", fullscreen_)) {
+                setFullscreen(!fullscreen_);
+            }
             ImGui::MenuItem("Log", nullptr, &showLogWindow_);
             ImGui::EndMenu();
         }

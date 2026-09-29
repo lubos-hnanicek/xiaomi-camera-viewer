@@ -95,6 +95,10 @@ holding to pan around the image. The default is 2x; `live_view_zoom` in
 `%APPDATA%\XiaomiViewer\config.json` changes the factor, and `1.0` disables
 magnification. While the live grid is on screen these keys belong to the cameras,
 so Tab does not walk the toolbar there the way it does on the other screens.
+`F11` goes fullscreen: the window covers the whole monitor, edge to edge, with
+no menu bar. What it shows is unchanged, so the grid stays a grid and a focused
+camera stays focused, and `F` still switches between the two. `Esc` or `F11`
+again leaves fullscreen.
 
 All of this is in the app as well. **Help -> Contents**, or `F1`, opens a window
 with every key and mouse button it answers to, what recording and listening do,
