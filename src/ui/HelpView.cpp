@@ -142,6 +142,9 @@ void drawControls() {
 
     static constexpr std::array kGlobalKeys{
         Binding{"F1", "Open or close this help"},
+        Binding{"F11", "Enter or leave fullscreen: the window covers the whole monitor, edge to "
+                       "edge, with no menu bar. The grid or focused camera stays as it was. Esc "
+                       "also leaves it."},
         Binding{"Ctrl+O", "Open a local MKV recording in the built-in player"},
         Binding{"Ctrl+S", "Save the configuration"},
         Binding{"Alt+F4", "Exit"},
