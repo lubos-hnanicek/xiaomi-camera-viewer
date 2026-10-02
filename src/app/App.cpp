@@ -355,6 +355,18 @@ LRESULT App::handleMessage(HWND window, UINT message, WPARAM wParam, LPARAM lPar
         return 0;
 
     case WM_SYSCOMMAND:
+        if (fullscreen_) {
+            switch (wParam & 0xFFF0) {
+            case SC_MOVE:
+            case SC_SIZE:
+            case SC_MAXIMIZE:
+            case SC_MINIMIZE:
+            case SC_RESTORE:
+                return 0;
+            default:
+                break;
+            }
+        }
         if ((wParam & 0xFFF0) == SC_KEYMENU) {
             return 0; // Alt on its own should not open the system menu
         }
@@ -513,33 +525,52 @@ void App::setFullscreen(bool value) {
     if (value == fullscreen_ || window_ == nullptr) {
         return;
     }
-    fullscreen_ = value;
 
     // Windows 11 rounds a top-level window's corners by default, which would
     // otherwise leave a sliver of desktop showing through at every edge of a
     // window sized to exactly the monitor.
-    const DWORD cornerPreference = fullscreen_ ? 1 /* DWMWCP_DONOTROUND */ : 0 /* DWMWCP_DEFAULT */;
-    ::DwmSetWindowAttribute(window_, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &cornerPreference,
-                            sizeof(cornerPreference));
-
-    if (!fullscreen_) {
-        ::SetWindowPlacement(window_, &fullscreenRestore_);
+    if (!value) {
+        fullscreen_ = false;
+        ::SetWindowLongPtrW(window_, GWL_STYLE, fullscreenRestoreStyle_);
         ::SetWindowPos(window_, nullptr, 0, 0, 0, 0,
                        SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        ::SetWindowPlacement(window_, &fullscreenRestore_);
+        const DWORD cornerPreference = 0 /* DWMWCP_DEFAULT */;
+        ::DwmSetWindowAttribute(window_, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &cornerPreference,
+                                sizeof(cornerPreference));
         return;
     }
 
     fullscreenRestore_.length = sizeof(fullscreenRestore_);
-    ::GetWindowPlacement(window_, &fullscreenRestore_);
+    if (::GetWindowPlacement(window_, &fullscreenRestore_) == 0) {
+        XV_WARN("could not save the window position before fullscreen (error {})", ::GetLastError());
+        return;
+    }
+
+    fullscreenRestoreStyle_ = ::GetWindowLongPtrW(window_, GWL_STYLE);
+    if (::IsIconic(window_) == 0 && ::IsZoomed(window_) == 0) {
+        RECT current{};
+        if (::GetWindowRect(window_, &current) != 0 && screenToWorkspace(current)) {
+            fullscreenRestore_.rcNormalPosition = current;
+        } else {
+            XV_WARN("could not read the current window bounds before fullscreen (error {})",
+                    ::GetLastError());
+        }
+    }
 
     MONITORINFO monitor{};
     monitor.cbSize = sizeof(monitor);
     if (::GetMonitorInfoW(::MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST), &monitor) == 0) {
-        // Nothing to size the window to, so this is not becoming fullscreen
-        // after all.
-        fullscreen_ = false;
+        XV_WARN("could not find the monitor for fullscreen (error {})", ::GetLastError());
         return;
     }
+
+    ::SetWindowLongPtrW(window_, GWL_STYLE,
+                        fullscreenRestoreStyle_ & ~static_cast<LONG_PTR>(WS_OVERLAPPEDWINDOW));
+    fullscreen_ = true;
+    const DWORD cornerPreference = 1 /* DWMWCP_DONOTROUND */;
+    ::DwmSetWindowAttribute(window_, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &cornerPreference,
+                            sizeof(cornerPreference));
 
     // SetWindowPos alone does not clear WS_MAXIMIZE, so a window that was
     // maximized would otherwise still read as zoomed afterwards and send
@@ -816,24 +847,23 @@ void App::handleGlobalKeys() {
     if (ImGui::IsKeyPressed(ImGuiKey_F11, false)) {
         setFullscreen(!fullscreen_);
     }
-    // Escape unwinds one level at a time: out of fullscreen first, then out of
-    // tile focus. Both are checked here rather than one in GridView, so a single
-    // press while both are on cannot fire both in the same frame and skip past
-    // the tile the window was made fullscreen from.
+    // Escape unwinds one level at a time, regardless of which screen is active.
+    // Keeping every action here prevents a view from handling the same press a
+    // second time later in the frame.
     if (!ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         if (fullscreen_) {
             setFullscreen(false);
         } else if (fullscreenTile_) {
             fullscreenTile_ = false;
+        } else if (screen_ == Screen::Playback && playbackFocused_) {
+            playbackFocused_ = false;
+        } else if (screen_ == Screen::SdCard) {
+            closeSdPlayback();
         }
     }
     if (screen_ == Screen::Grid && !ImGui::GetIO().WantTextInput &&
         ImGui::IsKeyChordPressed(ImGuiMod_Shift | ImGuiKey_R)) {
         toggleGlobalRecording();
-    }
-    if (screen_ == Screen::SdCard && !ImGui::GetIO().WantTextInput &&
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-        closeSdPlayback();
     }
 }
 

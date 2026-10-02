@@ -100,9 +100,6 @@ void handleKeys(App& app, size_t trackCount) {
     if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
         player.toggle();
     }
-    if (app.playbackFocused() && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-        app.setPlaybackFocused(false);
-    }
     if (ImGui::IsKeyPressed(ImGuiKey_F, false)) {
         app.setPlaybackFocused(!app.playbackFocused());
     }
