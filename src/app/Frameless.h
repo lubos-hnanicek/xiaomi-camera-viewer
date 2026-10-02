@@ -4,10 +4,11 @@
 
 // A window with no caption of its own, drawn entirely by the application.
 //
-// The window keeps WS_OVERLAPPEDWINDOW so Windows carries on doing everything it
-// does with a normal frame: snapping, the maximize animation, the drop shadow,
-// Alt+Space, Win+arrow. Only the caption strip is taken over, by handing its
-// pixels to the client area and answering hit tests for it by hand.
+// The window keeps WS_OVERLAPPEDWINDOW in normal use so Windows carries on doing
+// everything it does with a normal frame: snapping, the maximize animation, the
+// drop shadow, Alt+Space, Win+arrow. Fullscreen temporarily removes those styles.
+// Only the caption strip is otherwise taken over, by handing its pixels to the
+// client area and answering hit tests for it by hand.
 namespace xv::frameless {
 
 // Called from WM_NCCALCSIZE with wParam TRUE. Returns the client rectangle to
