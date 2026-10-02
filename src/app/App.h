@@ -293,6 +293,7 @@ private:
     // window back exactly where (and however maximized) it was.
     bool fullscreen_ = false;
     WINDOWPLACEMENT fullscreenRestore_{};
+    LONG_PTR fullscreenRestoreStyle_ = 0;
     bool showLogWindow_ = false;
     bool showHelpWindow_ = false;
     int playbackSelected_ = 0;
