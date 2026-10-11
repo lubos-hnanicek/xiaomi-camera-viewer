@@ -297,7 +297,7 @@ void drawTile(App& app, size_t index, CameraStream& stream, ImVec2 size, bool fo
         // grid or leave ambiguity about which camera it would act on. Every
         // camera gets one: a lens with no motor behind it still has an alarm, a
         // light and a recording to start, and the pad leaves out the arrows.
-        if (focused && stream.texture.ready()) {
+        if (focused && stream.texture.ready() && app.showCameraControls()) {
             drawPtzOverlay(app, stream, tileOrigin.x, tileOrigin.y, available.x, videoHeight);
         }
     }
@@ -332,6 +332,9 @@ void handleKeys(App& app, size_t reachable) {
     // fullscreen it has to take priority over.
     if (ImGui::IsKeyPressed(ImGuiKey_F)) {
         app.setFullscreenTile(!app.fullscreenTile());
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_C)) {
+        app.setShowCameraControls(!app.showCameraControls());
     }
     if (!io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_R)) {
         app.toggleRecording(*streams[static_cast<size_t>(selected)]);
