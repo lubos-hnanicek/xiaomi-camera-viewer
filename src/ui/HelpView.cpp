@@ -108,6 +108,7 @@ void drawControls() {
         Binding{"Arrow keys", "Pan and tilt the selected camera, moving for as long as the key is "
                               "held. A lens with no motor behind it ignores them."},
         Binding{"F", "Show only the selected camera, and go back"},
+        Binding{"C", "Show or hide the selected camera's on-screen controls"},
         Binding{"Esc", "Leave the single-camera view"},
         Binding{"R", "Start or stop recording the selected camera"},
         Binding{"Shift+R", "Start or stop one multi-track recording of all currently live views"},

@@ -918,6 +918,11 @@ void App::drawMenuBar() {
                 screen_ = Screen::Playback;
             }
 
+            ImGui::Separator();
+            if (ImGui::MenuItem("Camera controls", "C", showCameraControls())) {
+                setShowCameraControls(!showCameraControls());
+            }
+
             // One camera's card at a time, chosen here because the card belongs
             // to a camera rather than to the app. A dual-lens CW500 is two live
             // tiles over one card, and each lens has its own catalogue on it,
