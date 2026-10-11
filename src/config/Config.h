@@ -99,6 +99,7 @@ struct AppConfig {
     AccountConfig account;
     std::vector<CameraConfig> cameras;
     GridLayout layout = GridLayout::Auto;
+    bool showCameraControls = true;
     WindowPlacement window;
     float uiScale = 1.0f;
     // Magnification used while the right mouse button is held over live video.
