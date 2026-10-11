@@ -204,6 +204,15 @@ public:
     bool fullscreenTile() const { return fullscreenTile_; }
     void setFullscreenTile(bool value) { fullscreenTile_ = value; }
 
+    bool showCameraControls() const { return config_.showCameraControls; }
+    void setShowCameraControls(bool value) {
+        if (config_.showCameraControls == value) {
+            return;
+        }
+        config_.showCameraControls = value;
+        config_.save();
+    }
+
     // The whole window, borderless and covering the monitor edge to edge. It
     // only changes the window: what fills it is still up to fullscreenTile, so
     // the grid stays a grid and a focused camera stays focused, and F keeps

@@ -248,6 +248,7 @@ AppConfig AppConfig::load() {
     }
 
     config.layout = layoutFromInt(root.value("layout", 3));
+    config.showCameraControls = root.value("show_camera_controls", true);
     config.uiScale = root.value("ui_scale", 1.0f);
     config.liveViewZoom = root.value("live_view_zoom", 2.0f);
     if (!std::isfinite(config.liveViewZoom) || config.liveViewZoom < 1.0f) {
@@ -294,6 +295,7 @@ bool AppConfig::save() const {
     root["cameras"] = std::move(list);
     root["version"] = kConfigVersion;
     root["layout"] = static_cast<int>(layout);
+    root["show_camera_controls"] = showCameraControls;
     root["ui_scale"] = uiScale;
     root["live_view_zoom"] = liveViewZoom;
 
