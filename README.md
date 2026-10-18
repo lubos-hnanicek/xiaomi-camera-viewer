@@ -67,7 +67,7 @@ against a camera, and is the check that what was learnt survived into the code.
 
 ## Requirements
 
-- Windows 10 1809 or newer, 64-bit
+- Windows 10 1809 or newer, x64 or ARM64
 - A GPU supporting Direct3D 11 feature level 11.0 with video acceleration.
   Any Intel, AMD or NVIDIA GPU from roughly 2014 onward qualifies.
 - Cameras on the same local network as the PC. Xiaomi cameras refuse
@@ -286,8 +286,8 @@ first if a camera will not connect.
 
 ## Building
 
-You need Visual Studio 2026 with the C++ toolset, plus Go and mingw-w64 for the
-protocol bridge:
+You need Visual Studio 2026 with the C++ toolset, plus Go and a mingw-w64
+toolchain for the protocol bridge. The default x64 build uses WinLibs:
 
 ```powershell
 winget install --id GoLang.Go
@@ -301,6 +301,18 @@ Then:
 .\scripts\build.ps1          # configure and build everything
 .\scripts\build.ps1 -Package # ...and write a redistributable zip to dist\
 ```
+
+For an ARM64 build, run the install command in an MSYS2 CLANGARM64 shell and
+select the target explicitly:
+
+```powershell
+pacman -S mingw-w64-clang-aarch64-toolchain
+.\scripts\fetch-deps.ps1 -Architecture arm64
+.\scripts\build.ps1 -Architecture arm64 -Package
+```
+
+The two targets use separate dependency, build and package directories. Release
+archives are named `win-x64` and `win-arm64`.
 
 `build.ps1` finds Visual Studio itself and uses its bundled CMake and Ninja, so
 no developer command prompt is needed. The Go bridge is built as a dependency of

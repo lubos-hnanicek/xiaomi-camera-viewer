@@ -20,7 +20,8 @@
         "strategy": "external"
       },
       "cacheVariables": {
-        "CMAKE_CONFIGURATION_TYPES": "Debug;RelWithDebInfo;Release"
+        "CMAKE_CONFIGURATION_TYPES": "Debug;RelWithDebInfo;Release",
+        "XV_ARCHITECTURE": "x64"
       }
     },
     {
@@ -30,7 +31,24 @@
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_C_COMPILER": "cl.exe",
-        "CMAKE_CXX_COMPILER": "cl.exe"
+        "CMAKE_CXX_COMPILER": "cl.exe",
+        "XV_ARCHITECTURE": "x64"
+      }
+    },
+    {
+      "name": "msvc-arm64",
+      "displayName": "MSVC 2026 ARM64 (Ninja Multi-Config)",
+      "description": "Cross-compiles ARM64 using the MSVC toolchain from an x64 Developer Command Prompt.",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/msvc-arm64",
+      "architecture": {
+        "value": "ARM64",
+        "strategy": "external"
+      },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "cl.exe",
+        "CMAKE_CXX_COMPILER": "cl.exe",
+        "XV_ARCHITECTURE": "arm64"
       }
     },
     {
@@ -40,6 +58,17 @@
       "generator": "Visual Studio 18 2026",
       "binaryDir": "${sourceDir}/build/${presetName}",
       "architecture": "x64"
+    },
+    {
+      "name": "vs2026-arm64",
+      "displayName": "MSVC 2026 ARM64 (Visual Studio solution)",
+      "description": "Generates an ARM64 .sln for those who prefer the classic solution workflow.",
+      "generator": "Visual Studio 18 2026",
+      "binaryDir": "${sourceDir}/build/vs2026-arm64",
+      "architecture": "ARM64",
+      "cacheVariables": {
+        "XV_ARCHITECTURE": "arm64"
+      }
     }
   ],
   "buildPresets": [
@@ -53,6 +82,18 @@
       "name": "release",
       "displayName": "Release",
       "configurePreset": "msvc",
+      "configuration": "RelWithDebInfo"
+    },
+    {
+      "name": "arm64-debug",
+      "displayName": "ARM64 Debug",
+      "configurePreset": "msvc-arm64",
+      "configuration": "Debug"
+    },
+    {
+      "name": "arm64-release",
+      "displayName": "ARM64 Release",
+      "configurePreset": "msvc-arm64",
       "configuration": "RelWithDebInfo"
     },
     {

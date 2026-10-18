@@ -4,8 +4,8 @@
 
 .DESCRIPTION
     cgo cannot use MSVC, so -buildmode=c-shared needs a GCC-compatible compiler.
-    This locates a mingw-w64 gcc (winlibs, MSYS2 or one already on PATH) and
-    builds bridge/ into xmbridge.dll plus its generated header.
+    This locates a mingw-w64 compiler (GCC for x64, Clang for ARM64) and builds
+    bridge/ into xmbridge.dll plus its generated header.
 
     The resulting DLL is a plain C-ABI module, so the MSVC-built application
     links against it through the generated import library without caring that
@@ -32,7 +32,10 @@ param(
     [string]$VersionInfoRc,
 
     [ValidateSet('release', 'debug')]
-    [string]$Configuration = 'release'
+    [string]$Configuration = 'release',
+
+    [ValidateSet('x64', 'arm64')]
+    [string]$Architecture = 'x64'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -44,7 +47,7 @@ function Find-Tool([string]$Name, [string[]]$Candidates) {
     $onPath = Get-Command $Name -ErrorAction SilentlyContinue
     if ($onPath) { return $onPath.Source }
     foreach ($c in $Candidates) {
-        if (Test-Path $c) { return $c }
+        if ($c -and (Test-Path $c)) { return $c }
     }
     return $null
 }
@@ -57,39 +60,83 @@ if (-not $go) {
     throw "Go toolchain not found. Install it with: winget install --id GoLang.Go"
 }
 
-$gcc = Find-Tool 'gcc' @(
-    "$env:ProgramFiles\WinLibs\mingw64\bin\gcc.exe",
-    "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe\mingw64\bin\gcc.exe",
-    "C:\msys64\mingw64\bin\gcc.exe",
-    "C:\mingw64\bin\gcc.exe"
-)
-if (-not $gcc) {
-    # WinGet installs into a hashed directory; search for it as a last resort.
-    $wingetRoot = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages'
-    if (Test-Path $wingetRoot) {
-        $found = Get-ChildItem $wingetRoot -Recurse -Filter 'gcc.exe' -ErrorAction SilentlyContinue |
-                 Select-Object -First 1
-        if ($found) { $gcc = $found.FullName }
+$msys2Root = $env:MSYS2_LOCATION
+if (-not $msys2Root) {
+    $localMsys2Root = Join-Path $env:LOCALAPPDATA 'msys2'
+    if (Test-Path $localMsys2Root) {
+        $msys2Root = $localMsys2Root
     }
 }
-if (-not $gcc) {
-    throw "mingw-w64 gcc not found. Install it with: winget install --id BrechtSanders.WinLibs.POSIX.UCRT"
+if ($Architecture -eq 'x64') {
+    $compiler = Find-Tool 'gcc' @(
+        "$env:ProgramFiles\WinLibs\mingw64\bin\gcc.exe",
+        "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe\mingw64\bin\gcc.exe",
+        $(if ($msys2Root) { Join-Path $msys2Root 'ucrt64\bin\gcc.exe' }),
+        $(if ($msys2Root) { Join-Path $msys2Root 'mingw64\bin\gcc.exe' }),
+        'C:\mingw64\bin\gcc.exe'
+    )
+    if (-not $compiler) {
+        # WinGet installs into a hashed directory; search for it as a last resort.
+        $wingetRoot = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages'
+        if (Test-Path $wingetRoot) {
+            $found = Get-ChildItem $wingetRoot -Recurse -Filter 'gcc.exe' -ErrorAction SilentlyContinue |
+                     Select-Object -First 1
+            if ($found) { $compiler = $found.FullName }
+        }
+    }
+    if (-not $compiler) {
+        throw "mingw-w64 gcc not found. Install it with: winget install --id BrechtSanders.WinLibs.POSIX.UCRT"
+    }
+    $resourceTarget = 'pe-x86-64'
+} else {
+    # CLANGARM64's target compiler is an ARM64 executable and cannot run on
+    # the x64 Windows hosts used for cross-builds. Use the x64-hosted Clang
+    # driver with the ARM64 MSYS2 sysroot instead.
+    $compiler = Find-Tool 'clang' @(
+        $(if ($msys2Root) { Join-Path $msys2Root 'clang64\bin\clang.exe' })
+    )
+    if (-not $compiler) {
+        throw "x64-hosted Clang not found. Install the MSYS2 CLANG64 compiler and ARM64 toolchain."
+    }
+    $resourceTarget = 'aarch64-w64-mingw32'
 }
 
-# windres ships in the same bin directory as gcc, under either name depending on
-# whether the toolchain was built as a cross compiler.
-$gccBin = Split-Path -Parent $gcc
-$windres = Find-Tool 'windres' @(
-    (Join-Path $gccBin 'windres.exe'),
-    (Join-Path $gccBin 'x86_64-w64-mingw32-windres.exe')
-)
+# windres ships in the same bin directory as the compiler. ARM64 uses the
+# x64-hosted LLVM implementation because the CLANGARM64 copy cannot run on the
+# x64 build host.
+$compilerBin = Split-Path -Parent $compiler
+$clangResourceDir = $null
+if ($Architecture -eq 'arm64') {
+    $windres = Find-Tool 'llvm-windres' @(
+        (Join-Path $compilerBin 'llvm-windres.exe'),
+        $(if ($msys2Root) { Join-Path $msys2Root 'clang64\bin\llvm-windres.exe' })
+    )
+    if (-not $msys2Root) {
+        throw "MSYS2 root not found. Set MSYS2_LOCATION or install MSYS2 under $env:LOCALAPPDATA\msys2."
+    }
+    $clangResourceRoot = Join-Path $msys2Root 'clangarm64\lib\clang'
+    if (Test-Path $clangResourceRoot) {
+        $clangResourceDir = Get-ChildItem $clangResourceRoot -Directory |
+            Sort-Object Name -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+    }
+} else {
+    $windres = Find-Tool 'windres' @(
+        (Join-Path $compilerBin 'windres.exe'),
+        (Join-Path $compilerBin 'x86_64-w64-mingw32-windres.exe')
+    )
+}
 if (-not $windres) {
-    throw "windres not found next to $gcc. Reinstall mingw-w64 with its binutils."
+    throw "windres not found next to $compiler. Reinstall the mingw-w64 toolchain with its resource tools."
 }
 
 Write-Host "==> go:      $go"
-Write-Host "==> gcc:     $gcc"
+Write-Host "==> compiler: $compiler"
 Write-Host "==> windres: $windres"
+
+# Put the compiler on PATH for the duration of the build so resource tools and
+# cgo can find the whole toolchain (the compiler drives linker/runtime lookup).
+$env:PATH = "$compilerBin;$env:PATH"
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 $OutputDir = (Resolve-Path $OutputDir).Path
@@ -104,16 +151,28 @@ if (-not (Test-Path $VersionInfoRc)) {
 
 $syso = Join-Path $BridgeDir 'versioninfo.syso'
 Write-Host "==> windres $VersionInfoRc"
-& $windres --input $VersionInfoRc --output $syso --output-format coff --target pe-x86-64
+$resourceArgs = @('--input', $VersionInfoRc, '--output', $syso,
+                  '--output-format', 'coff', '--target', $resourceTarget)
+if ($Architecture -eq 'arm64') {
+    $includeDirs = @($env:INCLUDE -split ';' |
+        Where-Object { $_ -and (Test-Path $_) } |
+        Select-Object -Unique)
+    foreach ($includeDir in $includeDirs) {
+        $resourceArgs += @('--include-dir', $includeDir)
+    }
+}
+& $windres @resourceArgs
 if ($LASTEXITCODE -ne 0) { throw "windres failed on $VersionInfoRc" }
 
-# Put gcc on PATH for the duration of the build so cgo can find the whole
-# toolchain (gcc drives ld, as and the runtime libs from the same bin dir).
-$env:PATH = "$gccBin;$env:PATH"
 $env:CGO_ENABLED = '1'
-$env:CC = $gcc
+$env:CC = if ($Architecture -eq 'arm64') {
+    $resourceArg = if ($clangResourceDir) { " -resource-dir=$clangResourceDir" } else { '' }
+    "$compiler --target=aarch64-w64-mingw32 --sysroot=$msys2Root\clangarm64$resourceArg"
+} else {
+    $compiler
+}
 $env:GOOS = 'windows'
-$env:GOARCH = 'amd64'
+$env:GOARCH = if ($Architecture -eq 'x64') { 'amd64' } else { 'arm64' }
 
 # -X keeps the reported version in step with the project version without a
 # generated Go file: a debug build strips nothing, but still has to be stamped.

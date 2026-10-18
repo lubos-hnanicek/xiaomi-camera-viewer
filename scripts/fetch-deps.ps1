@@ -14,7 +14,10 @@
 #>
 [CmdletBinding()]
 param(
-    [switch]$Force
+    [switch]$Force,
+
+    [ValidateSet('x64', 'arm64')]
+    [string]$Architecture = 'x64'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -41,8 +44,16 @@ $JsonTag = 'v3.12.0'
 $JsonSha256 = 'AAF127C04CB31C406E5B04A63F1AE89369FCCDE6D8FA7CDDA1ED4F32DFC5DE63'
 
 $FFmpegRelease = 'autobuild-2026-07-31-14-10'
-$FFmpegAsset = 'ffmpeg-n8.1.2-34-g9b6c8969e0-win64-lgpl-shared-8.1.zip'
-$FFmpegSha256 = 'C222A490DDE4E7059F45495DEEF6BFB98DBCACC2B43DF5B607546252037AA95C'
+$FFmpegAsset = if ($Architecture -eq 'x64') {
+    'ffmpeg-n8.1.2-34-g9b6c8969e0-win64-lgpl-shared-8.1.zip'
+} else {
+    'ffmpeg-n8.1.2-34-g9b6c8969e0-winarm64-lgpl-shared-8.1.zip'
+}
+$FFmpegSha256 = if ($Architecture -eq 'x64') {
+    'C222A490DDE4E7059F45495DEEF6BFB98DBCACC2B43DF5B607546252037AA95C'
+} else {
+    '4abab52904037ecad91b54811d69005a0b2e1f591242fd1517d32b299246ece0'
+}
 $FFmpegUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/$FFmpegRelease/$FFmpegAsset"
 
 New-Item -ItemType Directory -Force -Path $ThirdParty | Out-Null
@@ -96,14 +107,14 @@ if (Test-Path $JsonHeader) {
 }
 
 # --- FFmpeg -----------------------------------------------------------------
-$FFmpegDir = Join-Path $ThirdParty 'ffmpeg'
+$FFmpegDir = Join-Path $ThirdParty "ffmpeg\$Architecture"
 if ($Force -and (Test-Path $FFmpegDir)) {
     Remove-Item -Recurse -Force $FFmpegDir
 }
 if (Test-Path (Join-Path $FFmpegDir 'include\libavcodec\avcodec.h')) {
     Write-Step "FFmpeg already present, skipping"
 } else {
-    Write-Step "Downloading FFmpeg ($FFmpegAsset, about 70 MB)"
+    Write-Step "Downloading FFmpeg $Architecture ($FFmpegAsset, about 70 MB)"
     $zip = Join-Path $env:TEMP $FFmpegAsset
     Invoke-WebRequest $FFmpegUrl -OutFile $zip
     Assert-Sha256 $zip $FFmpegSha256
