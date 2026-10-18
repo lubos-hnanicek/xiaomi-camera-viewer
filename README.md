@@ -13,6 +13,16 @@ per-session encryption keys, and read or write camera settings.
 Four cameras in the automatic grid, with the control pad on the selected tile.
 The pictures in the tiles are stand-ins rather than real camera output.
 
+## Downloads
+
+Download the latest application package for your Windows architecture:
+
+- [x64 application package](https://github.com/lubos-hnanicek/xiaomi-camera-viewer/releases/latest/download/XiaomiViewer-win-x64.zip)
+- [ARM64 application package](https://github.com/lubos-hnanicek/xiaomi-camera-viewer/releases/latest/download/XiaomiViewer-win-arm64.zip)
+
+These links contain the application package only. Matching symbol archives are
+attached separately to each release for debugging.
+
 ## Features
 
 - Live view of several cameras at once, in a 1x1, 2x2, 3x3 or automatic grid
