@@ -376,6 +376,8 @@ void drawAbout() {
     ImGui::SeparatorText("Xiaomi Camera Viewer");
 
     ImGui::Text("Version %s", XV_VERSION);
+    ImGui::Text("Architecture %s", XV_ARCHITECTURE);
+    ImGui::Text("Commit %s", XV_GIT_COMMIT);
     ImGui::TextColored(theme::kMuted, "Bridge %s", Bridge::instance().version().c_str());
     ImGui::TextColored(theme::kMuted, "Dear ImGui %s", ImGui::GetVersion());
     ImGui::Dummy(ImVec2(0, 10));
