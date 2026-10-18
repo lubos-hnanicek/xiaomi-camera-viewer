@@ -380,6 +380,7 @@ void drawAbout() {
     ImGui::Text("Commit %s", XV_GIT_COMMIT);
     ImGui::TextColored(theme::kMuted, "Bridge %s", Bridge::instance().version().c_str());
     ImGui::TextColored(theme::kMuted, "Dear ImGui %s", ImGui::GetVersion());
+    ImGui::TextLinkOpenURL("GitHub project", "https://github.com/lubos-hnanicek/xiaomi-camera-viewer");
     ImGui::Dummy(ImVec2(0, 10));
 
     paragraph("A native Windows viewer for Xiaomi CW400 and CW500 cameras, with provisional "
