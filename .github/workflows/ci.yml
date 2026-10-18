@@ -25,6 +25,16 @@ jobs:
     # toolset, and a release has to be reproducible, which a moving label is not.
     runs-on: windows-2025
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x64
+            msystem: UCRT64
+            toolchain: mingw-w64-ucrt-x86_64-toolchain
+          - architecture: arm64
+            msystem: CLANGARM64
+            toolchain: mingw-w64-clang-aarch64-toolchain mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-llvm-tools
 
     steps:
       - uses: actions/checkout@v7
@@ -34,16 +44,41 @@ jobs:
           go-version-file: bridge/go.mod
           cache-dependency-path: bridge/go.sum
 
+      - name: Set up bridge toolchain
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          install: ${{ matrix.toolchain }}
+
+      - name: Add bridge toolchain to PATH
+        env:
+          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          $bins = if ('${{ matrix.architecture }}' -eq 'x64') {
+            @(Join-Path $env:MSYS2_LOCATION 'ucrt64\bin')
+          } else {
+            @(
+              (Join-Path $env:MSYS2_LOCATION 'clang64\bin'),
+              (Join-Path $env:MSYS2_LOCATION 'clangarm64\bin')
+            )
+          }
+          foreach ($bin in $bins) { Add-Content -Path $env:GITHUB_PATH -Value $bin }
+          Add-Content -Path $env:GITHUB_ENV -Value "MSYS2_LOCATION=$env:MSYS2_LOCATION"
+
       # Keyed on fetch-deps.ps1 because that is where the pinned versions and
       # hashes live, so bumping a dependency invalidates the cache by itself.
       - name: Cache third-party dependencies
         uses: actions/cache@v6
         with:
           path: third_party
-          key: deps-${{ runner.os }}-${{ hashFiles('scripts/fetch-deps.ps1') }}
+          key: deps-${{ runner.os }}-${{ matrix.architecture }}-${{ hashFiles('scripts/fetch-deps.ps1') }}
 
       - name: Fetch dependencies
-        run: .\scripts\fetch-deps.ps1
+        run: .\scripts\fetch-deps.ps1 -Architecture $env:TARGET_ARCHITECTURE
+        env:
+          TARGET_ARCHITECTURE: ${{ matrix.architecture }}
 
       - name: Resolve version
         id: version
@@ -52,33 +87,46 @@ jobs:
           Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$version" -Encoding utf8
 
       - name: Build
-        run: .\scripts\build.ps1 -Configuration RelWithDebInfo -Jobs 4
+        run: .\scripts\build.ps1 -Architecture $env:TARGET_ARCHITECTURE -Configuration RelWithDebInfo -Jobs 4
+        env:
+          TARGET_ARCHITECTURE: ${{ matrix.architecture }}
 
       - name: Native recording tests
-        run: ctest --test-dir build/msvc -C RelWithDebInfo --output-on-failure
+        if: matrix.architecture == 'x64'
+        run: ctest --test-dir $env:BUILD_DIR -C RelWithDebInfo --output-on-failure
+        env:
+          BUILD_DIR: ${{ matrix.architecture == 'x64' && 'build/msvc' || 'build/msvc-arm64' }}
 
       - name: Bridge tests
+        if: matrix.architecture == 'x64'
         run: go test ./...
         working-directory: bridge
 
       - name: Bridge ABI tests
-        run: .\scripts\test-bridge-abi.ps1
+        if: matrix.architecture == 'x64'
+        run: .\scripts\test-bridge-abi.ps1 -Architecture $env:TARGET_ARCHITECTURE
+        env:
+          TARGET_ARCHITECTURE: ${{ matrix.architecture }}
 
       # Keep the executable and bridge version resources consistent with the
       # package name produced from the project version.
       - name: Check version metadata
-        run: .\scripts\check-metadata.ps1 -Configuration RelWithDebInfo
+        run: .\scripts\check-metadata.ps1 -Architecture $env:TARGET_ARCHITECTURE -Configuration RelWithDebInfo
+        env:
+          TARGET_ARCHITECTURE: ${{ matrix.architecture }}
 
       - name: Package
-        run: .\scripts\package.ps1 -Configuration RelWithDebInfo
+        run: .\scripts\package.ps1 -Architecture $env:TARGET_ARCHITECTURE -Configuration RelWithDebInfo
+        env:
+          TARGET_ARCHITECTURE: ${{ matrix.architecture }}
 
       # So a branch or a pull request can be tried without building it locally.
       # Project binaries are unsigned, so Windows may warn on first run.
       - name: Upload the build
         uses: actions/upload-artifact@v7
         with:
-          name: XiaomiViewer-${{ steps.version.outputs.version }}-win-x64-unsigned
-          path: dist/*.zip
+          name: XiaomiViewer-${{ steps.version.outputs.version }}-win-${{ matrix.architecture }}-unsigned
+          path: dist/XiaomiViewer-${{ steps.version.outputs.version }}-win-${{ matrix.architecture }}*.zip
           if-no-files-found: error
           # Short, because this is a build to try rather than a build to keep,
           # and every push would otherwise leave 50 MB behind for three months.

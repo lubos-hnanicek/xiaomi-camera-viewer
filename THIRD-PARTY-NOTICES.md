@@ -28,10 +28,13 @@ binaries are the LGPL-2.1-or-later configuration from the
 [BtbN builds](https://github.com/BtbN/FFmpeg-Builds), linked **dynamically** as
 separate DLLs. A copy of the license is included as `LICENSE.LGPL-2.1.txt`.
 
-The exact artefact is `ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip` from
-<https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip>,
-which is also what `scripts/fetch-deps.ps1` downloads. That release records the
-build configuration, and FFmpeg's own source is at
+The pinned x64 artefact is
+`ffmpeg-n8.1.2-34-g9b6c8969e0-win64-lgpl-shared-8.1.zip`; the ARM64 artefact is
+`ffmpeg-n8.1.2-34-g9b6c8969e0-winarm64-lgpl-shared-8.1.zip`. Both come from the
+`autobuild-2026-07-31-14-10` release and are downloaded by
+`scripts/fetch-deps.ps1`, which verifies their architecture-specific SHA-256
+hashes before extraction. That release records the build configuration, and
+FFmpeg's own source is at
 <https://ffmpeg.org/download.html>.
 
 Because the linkage is dynamic and the libraries are shipped unmodified as

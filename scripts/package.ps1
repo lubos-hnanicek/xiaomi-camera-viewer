@@ -12,6 +12,9 @@
     Which build output to package. Debug stages but is never archived: it is not
     something to hand to anyone.
 
+.PARAMETER Architecture
+    x64 (default) or arm64.
+
 .PARAMETER Stage
     Copy the executable, its DLLs and the licence documents into dist/.
 
@@ -28,6 +31,9 @@ param(
     [ValidateSet('Debug', 'RelWithDebInfo', 'Release')]
     [string]$Configuration = 'RelWithDebInfo',
 
+    [ValidateSet('x64', 'arm64')]
+    [string]$Architecture = 'x64',
+
     [switch]$Stage,
 
     [switch]$Archive,
@@ -38,8 +44,10 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$OutputDir = Join-Path $RepoRoot "build\msvc\$Configuration"
-$StageDir = Join-Path $RepoRoot "dist\XiaomiViewer-$Configuration"
+$buildName = if ($Architecture -eq 'x64') { 'msvc' } else { 'msvc-arm64' }
+$OutputDir = Join-Path $RepoRoot "build\$buildName\$Configuration"
+$StageSuffix = if ($Architecture -eq 'x64') { '' } else { "-$Architecture" }
+$StageDir = Join-Path $RepoRoot "dist\XiaomiViewer-$Configuration$StageSuffix"
 
 if (-not $Stage -and -not $Archive) {
     $Stage = $true
@@ -132,7 +140,7 @@ if ($Archive) {
     $version = & (Join-Path $PSScriptRoot 'get-version.ps1')
     $root = "XiaomiViewer-$version"
 
-    Write-Archive -Path (Join-Path $RepoRoot "dist\$root-win-x64.zip") -Root $root `
+    Write-Archive -Path (Join-Path $RepoRoot "dist\$root-win-$Architecture.zip") -Root $root `
         -Base $StageDir -Files (Get-ChildItem -File -Recurse $StageDir)
 
     # Symbols go in their own archive. The .pdb compresses to more than a quarter
@@ -141,7 +149,7 @@ if ($Archive) {
     # kept and published rather than simply dropped.
     $symbols = Get-Item (Join-Path $OutputDir 'XiaomiViewer.pdb') -ErrorAction SilentlyContinue
     if ($symbols) {
-        Write-Archive -Path (Join-Path $RepoRoot "dist\$root-win-x64-symbols.zip") -Root $root `
+        Write-Archive -Path (Join-Path $RepoRoot "dist\$root-win-$Architecture-symbols.zip") -Root $root `
             -Base $symbols.DirectoryName -Files @($symbols)
     } elseif ($RequireSymbols) {
         throw "No XiaomiViewer.pdb in $OutputDir. Build the RelWithDebInfo configuration for a release."

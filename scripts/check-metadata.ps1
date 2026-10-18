@@ -10,6 +10,9 @@
 .PARAMETER Configuration
     Which build output to check. Ignored if -Path is given.
 
+.PARAMETER Architecture
+    x64 (default) or arm64.
+
 .PARAMETER Path
     Directory holding the binaries, for checking a staged copy instead.
 #>
@@ -18,6 +21,9 @@ param(
     [ValidateSet('Debug', 'RelWithDebInfo', 'Release')]
     [string]$Configuration = 'RelWithDebInfo',
 
+    [ValidateSet('x64', 'arm64')]
+    [string]$Architecture = 'x64',
+
     [string]$Path
 )
 
@@ -25,7 +31,8 @@ $ErrorActionPreference = 'Stop'
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $Path) {
-    $Path = Join-Path $RepoRoot "build\msvc\$Configuration"
+    $buildName = if ($Architecture -eq 'x64') { 'msvc' } else { 'msvc-arm64' }
+    $Path = Join-Path $RepoRoot "build\$buildName\$Configuration"
 }
 if (-not (Test-Path $Path)) {
     throw "Nothing to check at $Path."

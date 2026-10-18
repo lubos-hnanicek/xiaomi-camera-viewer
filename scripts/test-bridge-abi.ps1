@@ -11,7 +11,10 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$DllPath
+    [string]$DllPath,
+
+    [ValidateSet('x64', 'arm64')]
+    [string]$Architecture = 'x64'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,7 +22,8 @@ $ErrorActionPreference = 'Stop'
 # Resolved here rather than as a parameter default: Windows PowerShell does not
 # populate $PSScriptRoot while binding parameters.
 if (-not $DllPath) {
-    $DllPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'build\msvc\RelWithDebInfo\xmbridge.dll'
+    $buildName = if ($Architecture -eq 'x64') { 'msvc' } else { 'msvc-arm64' }
+    $DllPath = Join-Path (Split-Path -Parent $PSScriptRoot) "build\$buildName\RelWithDebInfo\xmbridge.dll"
 }
 
 if (-not (Test-Path $DllPath)) {

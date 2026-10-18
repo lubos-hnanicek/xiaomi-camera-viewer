@@ -9,6 +9,16 @@ if(NOT WIN32)
     message(FATAL_ERROR "XiaomiViewer targets Windows only.")
 endif()
 
+set(XV_ARCHITECTURE "x64" CACHE STRING "Target architecture (x64 or arm64)")
+set_property(CACHE XV_ARCHITECTURE PROPERTY STRINGS x64 arm64)
+if(XV_ARCHITECTURE STREQUAL "x64")
+    set(XV_PROCESSOR_ARCHITECTURE "amd64")
+elseif(XV_ARCHITECTURE STREQUAL "arm64")
+    set(XV_PROCESSOR_ARCHITECTURE "arm64")
+else()
+    message(FATAL_ERROR "XV_ARCHITECTURE must be x64 or arm64, got '${XV_ARCHITECTURE}'.")
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -41,11 +51,12 @@ configure_file(src/app/app.manifest.in "${APP_MANIFEST}" @ONLY)
 configure_file(bridge/versioninfo.rc.in "${BRIDGE_VERSION_RC}" @ONLY)
 
 set(THIRD_PARTY "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+set(FFMPEG_DIR "${THIRD_PARTY}/ffmpeg/${XV_ARCHITECTURE}")
 
 if(NOT EXISTS "${THIRD_PARTY}/imgui/imgui.h")
     message(FATAL_ERROR "Dependencies are missing. Run scripts/fetch-deps.ps1 first.")
 endif()
-if(NOT EXISTS "${THIRD_PARTY}/ffmpeg/include/libavcodec/avcodec.h")
+if(NOT EXISTS "${FFMPEG_DIR}/include/libavcodec/avcodec.h")
     message(FATAL_ERROR "FFmpeg is missing. Run scripts/fetch-deps.ps1 first.")
 endif()
 
@@ -72,12 +83,12 @@ target_link_libraries(imgui PUBLIC d3d11 dxgi d3dcompiler dwmapi)
 
 # --- FFmpeg (prebuilt LGPL shared) ------------------------------------------
 add_library(ffmpeg INTERFACE)
-target_include_directories(ffmpeg SYSTEM INTERFACE "${THIRD_PARTY}/ffmpeg/include")
+target_include_directories(ffmpeg SYSTEM INTERFACE "${FFMPEG_DIR}/include")
 target_link_libraries(ffmpeg INTERFACE
-    "${THIRD_PARTY}/ffmpeg/lib/avcodec.lib"
-    "${THIRD_PARTY}/ffmpeg/lib/avformat.lib"  # the Matroska muxer, for recording
-    "${THIRD_PARTY}/ffmpeg/lib/avutil.lib"
-    "${THIRD_PARTY}/ffmpeg/lib/swresample.lib")
+    "${FFMPEG_DIR}/lib/avcodec.lib"
+    "${FFMPEG_DIR}/lib/avformat.lib"  # the Matroska muxer, for recording
+    "${FFMPEG_DIR}/lib/avutil.lib"
+    "${FFMPEG_DIR}/lib/swresample.lib")
 
 # --- nlohmann/json ----------------------------------------------------------
 add_library(nlohmann_json INTERFACE)
@@ -87,7 +98,11 @@ target_include_directories(nlohmann_json SYSTEM INTERFACE "${THIRD_PARTY}")
 # cgo cannot use MSVC, so the bridge is built by its own script with mingw-w64
 # and consumed here as a prebuilt import library.
 set(BRIDGE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/bridge")
-set(BRIDGE_OUT "${CMAKE_CURRENT_SOURCE_DIR}/build/bridge")
+if(XV_ARCHITECTURE STREQUAL "x64")
+    set(BRIDGE_OUT "${CMAKE_CURRENT_SOURCE_DIR}/build/bridge")
+else()
+    set(BRIDGE_OUT "${CMAKE_CURRENT_SOURCE_DIR}/build/bridge-arm64")
+endif()
 set(BRIDGE_DLL "${BRIDGE_OUT}/xmbridge.dll")
 
 # Every Go source is a dependency, not just the cgo entry point: listing only
@@ -105,6 +120,7 @@ add_custom_command(
             -OutputDir "${BRIDGE_OUT}"
             -Version "${PROJECT_VERSION}"
             -VersionInfoRc "${BRIDGE_VERSION_RC}"
+            -Architecture "${XV_ARCHITECTURE}"
     WORKING_DIRECTORY "${BRIDGE_DIR}"
     DEPENDS ${BRIDGE_SOURCES}
     COMMENT "Building Go bridge DLL (xmbridge.dll)"
@@ -208,7 +224,7 @@ set(STAGE_COMMANDS
 foreach(dll avcodec-62 avformat-62 avutil-60 swresample-6)
     list(APPEND STAGE_COMMANDS
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${THIRD_PARTY}/ffmpeg/bin/${dll}.dll" "$<TARGET_FILE_DIR:XiaomiViewer>")
+                "${FFMPEG_DIR}/bin/${dll}.dll" "$<TARGET_FILE_DIR:XiaomiViewer>")
 endforeach()
 
 add_custom_target(stage_runtime ALL
