@@ -44,6 +44,16 @@ jobs:
           go-version-file: bridge/go.mod
           cache-dependency-path: bridge/go.sum
 
+      # Keyed on fetch-deps.ps1 because that is where the pinned versions and
+      # hashes live, so bumping a dependency invalidates the cache by itself.
+      # Restore it before MSYS2 changes PATH and environment variables used by
+      # actions/cache's Windows archive helper.
+      - name: Cache third-party dependencies
+        uses: actions/cache@v6
+        with:
+          path: third_party
+          key: deps-${{ runner.os }}-${{ matrix.architecture }}-${{ hashFiles('scripts/fetch-deps.ps1') }}
+
       - name: Set up bridge toolchain
         id: msys2
         uses: msys2/setup-msys2@v2
@@ -66,14 +76,6 @@ jobs:
           }
           foreach ($bin in $bins) { Add-Content -Path $env:GITHUB_PATH -Value $bin }
           Add-Content -Path $env:GITHUB_ENV -Value "MSYS2_LOCATION=$env:MSYS2_LOCATION"
-
-      # Keyed on fetch-deps.ps1 because that is where the pinned versions and
-      # hashes live, so bumping a dependency invalidates the cache by itself.
-      - name: Cache third-party dependencies
-        uses: actions/cache@v6
-        with:
-          path: third_party
-          key: deps-${{ runner.os }}-${{ matrix.architecture }}-${{ hashFiles('scripts/fetch-deps.ps1') }}
 
       - name: Fetch dependencies
         run: .\scripts\fetch-deps.ps1 -Architecture $env:TARGET_ARCHITECTURE
