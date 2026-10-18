@@ -19,6 +19,20 @@ else()
     message(FATAL_ERROR "XV_ARCHITECTURE must be x64 or arm64, got '${XV_ARCHITECTURE}'.")
 endif()
 
+set(XV_GIT_COMMIT "unknown")
+find_package(Git QUIET)
+if(GIT_FOUND)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" -C "${CMAKE_SOURCE_DIR}" rev-parse HEAD
+        OUTPUT_VARIABLE XV_GIT_COMMIT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+        RESULT_VARIABLE XV_GIT_RESULT)
+    if(NOT XV_GIT_RESULT EQUAL 0 OR NOT XV_GIT_COMMIT MATCHES "^[0-9a-fA-F]+$")
+        set(XV_GIT_COMMIT "unknown")
+    endif()
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
