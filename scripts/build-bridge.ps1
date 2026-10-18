@@ -92,9 +92,13 @@ if ($Architecture -eq 'x64') {
     # CLANGARM64's target compiler is an ARM64 executable and cannot run on
     # the x64 Windows hosts used for cross-builds. Use the x64-hosted Clang
     # driver with the ARM64 MSYS2 sysroot instead.
-    $compiler = Find-Tool 'clang' @(
-        $(if ($msys2Root) { Join-Path $msys2Root 'clang64\bin\clang.exe' })
-    )
+    $compiler = $null
+    $msys2Compiler = if ($msys2Root) { Join-Path $msys2Root 'clang64\bin\clang.exe' }
+    if ($msys2Compiler -and (Test-Path $msys2Compiler)) {
+        $compiler = $msys2Compiler
+    } else {
+        $compiler = Find-Tool 'clang' @()
+    }
     if (-not $compiler) {
         throw "x64-hosted Clang not found. Install the MSYS2 CLANG64 compiler and ARM64 toolchain."
     }
@@ -107,10 +111,14 @@ if ($Architecture -eq 'x64') {
 $compilerBin = Split-Path -Parent $compiler
 $clangResourceDir = $null
 if ($Architecture -eq 'arm64') {
-    $windres = Find-Tool 'llvm-windres' @(
-        (Join-Path $compilerBin 'llvm-windres.exe'),
-        $(if ($msys2Root) { Join-Path $msys2Root 'clang64\bin\llvm-windres.exe' })
-    )
+    $compilerWindres = Join-Path $compilerBin 'llvm-windres.exe'
+    if (Test-Path $compilerWindres) {
+        $windres = $compilerWindres
+    } else {
+        $windres = Find-Tool 'llvm-windres' @(
+            $(if ($msys2Root) { Join-Path $msys2Root 'clang64\bin\llvm-windres.exe' })
+        )
+    }
     if (-not $msys2Root) {
         throw "MSYS2 root not found. Set MSYS2_LOCATION or install MSYS2 under $env:LOCALAPPDATA\msys2."
     }
@@ -165,11 +173,12 @@ if ($Architecture -eq 'arm64') {
 if ($LASTEXITCODE -ne 0) { throw "windres failed on $VersionInfoRc" }
 
 $env:CGO_ENABLED = '1'
+$compilerCommand = if ($compiler.Contains(' ')) { '"' + $compiler + '"' } else { $compiler }
 $env:CC = if ($Architecture -eq 'arm64') {
     $resourceArg = if ($clangResourceDir) { " -resource-dir=$clangResourceDir" } else { '' }
-    "$compiler --target=aarch64-w64-mingw32 --sysroot=$msys2Root\clangarm64$resourceArg"
+    "$compilerCommand --target=aarch64-w64-mingw32 --sysroot=$msys2Root\clangarm64$resourceArg"
 } else {
-    $compiler
+    $compilerCommand
 }
 $env:GOOS = 'windows'
 $env:GOARCH = if ($Architecture -eq 'x64') { 'amd64' } else { 'arm64' }
