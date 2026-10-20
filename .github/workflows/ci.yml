@@ -93,12 +93,6 @@ jobs:
         env:
           TARGET_ARCHITECTURE: ${{ matrix.architecture }}
 
-      - name: Native recording tests
-        if: matrix.architecture == 'x64'
-        run: ctest --test-dir $env:BUILD_DIR -C RelWithDebInfo --output-on-failure
-        env:
-          BUILD_DIR: ${{ matrix.architecture == 'x64' && 'build/msvc' || 'build/msvc-arm64' }}
-
       - name: Bridge tests
         if: matrix.architecture == 'x64'
         run: go test ./...
@@ -133,3 +127,35 @@ jobs:
           # Short, because this is a build to try rather than a build to keep,
           # and every push would otherwise leave 50 MB behind for three months.
           retention-days: 14
+
+  native-tests:
+    name: Native tests (${{ matrix.architecture }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x64
+            runner: windows-2025-vs2026
+          - architecture: arm64
+            runner: windows-11-vs2026-arm
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache third-party dependencies
+        uses: actions/cache@v6
+        with:
+          path: third_party
+          key: deps-${{ runner.os }}-${{ matrix.architecture }}-${{ hashFiles('scripts/fetch-deps.ps1') }}
+
+      - name: Fetch dependencies
+        run: .\scripts\fetch-deps.ps1 -Architecture $env:TARGET_ARCHITECTURE
+        env:
+          TARGET_ARCHITECTURE: ${{ matrix.architecture }}
+
+      - name: Build and run native tests
+        run: .\scripts\build.ps1 -Architecture $env:TARGET_ARCHITECTURE -Configuration RelWithDebInfo -TestsOnly -Jobs 2
+        env:
+          TARGET_ARCHITECTURE: ${{ matrix.architecture }}

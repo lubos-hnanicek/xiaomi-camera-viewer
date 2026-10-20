@@ -18,6 +18,10 @@
     Also stage a redistributable folder under dist/ and zip it, by handing off to
     package.ps1.
 
+.PARAMETER TestsOnly
+    Configure, build and run the hardware-independent native CTest targets
+    without building the application or Go bridge.
+
 .PARAMETER Jobs
     Maximum parallel compilations. Capped to keep memory use sane on machines
     where a wide C++ build would otherwise exhaust the commit limit.
@@ -31,6 +35,8 @@ param(
     [string]$Architecture = 'x64',
 
     [switch]$Package,
+
+    [switch]$TestsOnly,
 
     [ValidateRange(1, 64)]
     [int]$Jobs = 16
@@ -132,6 +138,18 @@ Write-Step "Configuring ($Configuration)"
     "-DXV_ARCHITECTURE=$Architecture" `
     '-DCMAKE_CONFIGURATION_TYPES=Debug;RelWithDebInfo;Release'
 if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed" }
+
+if ($TestsOnly) {
+    Write-Step "Building native tests with at most $Jobs parallel compilations"
+    & $cmake --build $BuildDir --config $Configuration `
+        --target recording_timeline_tests camera_channel_tests --parallel $Jobs
+    if ($LASTEXITCODE -ne 0) { throw "Test build failed" }
+
+    Write-Step "Running native tests"
+    & ctest --test-dir $BuildDir -C $Configuration --output-on-failure
+    if ($LASTEXITCODE -ne 0) { throw "Native tests failed" }
+    return
+}
 
 Write-Step "Building with at most $Jobs parallel compilations"
 & $cmake --build $BuildDir --config $Configuration --parallel $Jobs
