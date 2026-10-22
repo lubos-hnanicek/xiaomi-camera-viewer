@@ -595,6 +595,31 @@ bool App::setupImGui() {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.IniFilename = nullptr; // window layout is derived, not persisted
 
+    char windowsDirectory[MAX_PATH]{};
+    const UINT windowsDirectoryLength =
+        ::GetWindowsDirectoryA(windowsDirectory, ARRAYSIZE(windowsDirectory));
+    if (windowsDirectoryLength > 0 && windowsDirectoryLength < ARRAYSIZE(windowsDirectory)) {
+        std::string fontPath(windowsDirectory, windowsDirectoryLength);
+        if (fontPath.back() != '\\') {
+            fontPath.push_back('\\');
+        }
+        fontPath += "Fonts\\segoeui.ttf";
+
+        static const ImWchar kLatinAndCyrillic[] = {
+            0x0020, 0x00FF,
+            0x0400, 0x052F,
+            0,
+        };
+        if (ImFont* font = io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 13.0f, nullptr,
+                                                        kLatinAndCyrillic)) {
+            io.FontDefault = font;
+        } else {
+            XV_WARN("could not load Unicode UI font from {}", fontPath);
+        }
+    } else {
+        XV_WARN("could not locate the Windows fonts directory");
+    }
+
     // The help and the log are read against the picture, so being unable to put
     // one beside the window rather than on top of it is a real limitation. With
     // viewports on, dragging one past the edge of the app hands it an OS window
