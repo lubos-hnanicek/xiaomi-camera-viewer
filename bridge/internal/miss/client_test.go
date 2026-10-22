@@ -21,6 +21,8 @@ func TestResolveQuality(t *testing.T) {
 		{"cw400a default", ModelHLC8A, "", "3"},
 		{"cw500 hd", Model500DH, "hd", "3"},
 		{"cw500 default", Model500DH, "", "3"},
+		{"cw501d hd", ModelCW501D, "hd", "3"},
+		{"cw501d default", ModelCW501D, "", "3"},
 		{"mod11 hd", ModelMod11, "hd", "3"},
 		{"c200 hd", ModelC200, "hd", "3"},
 		{"c300 hd", ModelC300, "hd", "3"},

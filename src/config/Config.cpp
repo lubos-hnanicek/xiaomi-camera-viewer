@@ -110,7 +110,8 @@ std::string CameraConfig::label() const {
 bool isDualLens(const std::string& model) {
     return model.find(".hlmax") != std::string::npos ||
            model.find("cw500") != std::string::npos ||
-           model.find("500dh") != std::string::npos;
+           model.find("500dh") != std::string::npos ||
+           model.find("cw501d") != std::string::npos;
 }
 
 uint32_t sdRecordingChannel(const std::string& model, const std::string& channel) {
@@ -144,6 +145,7 @@ bool hasMotor(const std::string& model) {
     return model.find("hlc8") != std::string::npos ||  // CW400
            model.find("500dh") != std::string::npos || // CW500
            model.find("cw500") != std::string::npos ||
+            model.find("cw501d") != std::string::npos ||
            model.find(".hlmax") != std::string::npos ||
            isCw300(model) ||
            isCw700s(model);

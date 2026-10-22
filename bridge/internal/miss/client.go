@@ -83,6 +83,7 @@ const (
 	ModelHLC8   = "isa.camera.hlc8"  // CW400
 	ModelHLC8A  = "isa.camera.hlc8a" // CW400, later revision
 	Model500DH  = "isa.camera.500dh" // CW500, dual lens
+	ModelCW501D = "isa.camera.cw501d" // CW501D, dual lens
 	Model700SA  = "isa.camera.700sa" // CW700S, hybrid-zoom dual sensor
 	ModelMod11  = "mxiang.camera.mod11"
 	ModelMoc001 = "mxiang.camera.moc001" // CW300, China
@@ -247,7 +248,7 @@ func resolveQuality(model, quality string) string {
 		// Most cameras call 2 their high quality. A few expose a better 3, and
 		// on others 3 has broken codec parameters, so this is per-model.
 		switch model {
-		case ModelC200, ModelC300, ModelHLC8, ModelHLC8A, Model500DH, ModelMod11, ModelMoc006:
+		case ModelC200, ModelC300, ModelHLC8, ModelHLC8A, Model500DH, ModelCW501D, ModelMod11, ModelMoc006:
 			// Measured against a real global/EU CW300 (see scripts/probe-quality.ps1):
 			// profile 2 (the external go2rtc deployment's default, and this bridge's
 			// old default) gives only 848x480, profile 3 gives the full 2560x1440.

@@ -75,6 +75,7 @@ func TestIsDualLensModel(t *testing.T) {
 		want  bool
 	}{
 		{"isa.camera.500dh", true},
+		{"isa.camera.cw501d", true},
 		{"isa.camera.hlmax", true},
 		{"vendor.camera.CW500", true},
 		{"isa.camera.hlc8a", false},

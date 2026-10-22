@@ -474,7 +474,8 @@ func isDualLensModel(model string) bool {
 	model = strings.ToLower(model)
 	return strings.Contains(model, ".hlmax") ||
 		strings.Contains(model, "500dh") ||
-		strings.Contains(model, "cw500")
+		strings.Contains(model, "cw500") ||
+		strings.Contains(model, "cw501d")
 }
 
 // lanSearchTimeout bounds the broadcast search for a camera the cloud has no

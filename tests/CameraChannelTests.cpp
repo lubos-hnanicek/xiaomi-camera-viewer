@@ -28,6 +28,10 @@ int main() {
     assert(sdRecordingChannel("isa.camera.500dh", "0") == 0);
     assert(sdRecordingChannel("isa.camera.500dh", "1") == 10);
 
+    assert(isDualLens("isa.camera.cw501d"));
+    assert(sdRecordingChannel("isa.camera.cw501d", "") == 0);
+    assert(sdRecordingChannel("isa.camera.cw501d", "1") == 10);
+
     // The other spellings of the same board have to agree, or one config would
     // browse an empty catalogue while another worked.
     assert(sdRecordingChannel("chuangmi.camera.cw500", "1") == 10);
@@ -37,6 +41,10 @@ int main() {
     xv::CameraConfig second;
     second.model = "isa.camera.500dh";
     second.channel = "1";
+    assert(!second.motorised());
+    assert(sdRecordingChannel(second.model, second.channel) == 10);
+
+    second.model = "isa.camera.cw501d";
     assert(!second.motorised());
     assert(sdRecordingChannel(second.model, second.channel) == 10);
 
