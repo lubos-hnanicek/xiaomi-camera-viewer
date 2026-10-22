@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(XiaomiViewer
-    VERSION 0.7.2
+    VERSION 0.7.3
     DESCRIPTION "Native Windows viewer and controller for Xiaomi cameras"
     LANGUAGES CXX RC)
 
