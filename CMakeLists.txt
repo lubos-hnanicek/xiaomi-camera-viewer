@@ -66,7 +66,7 @@ configure_file(bridge/versioninfo.rc.in "${BRIDGE_VERSION_RC}" @ONLY)
 
 set(THIRD_PARTY "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 set(FFMPEG_DIR "${THIRD_PARTY}/ffmpeg/${XV_ARCHITECTURE}")
-set(UI_FONT_FILE "${THIRD_PARTY}/proggyvector/ProggyVector-Regular.ttf")
+set(UI_FONT_VECTOR_FILE "${THIRD_PARTY}/proggyvector/ProggyVector-Regular.ttf")
 
 if(NOT EXISTS "${THIRD_PARTY}/imgui/imgui.h")
     message(FATAL_ERROR "Dependencies are missing. Run scripts/fetch-deps.ps1 first.")
@@ -74,7 +74,7 @@ endif()
 if(NOT EXISTS "${FFMPEG_DIR}/include/libavcodec/avcodec.h")
     message(FATAL_ERROR "FFmpeg is missing. Run scripts/fetch-deps.ps1 first.")
 endif()
-if(NOT EXISTS "${UI_FONT_FILE}")
+if(NOT EXISTS "${UI_FONT_VECTOR_FILE}")
     message(FATAL_ERROR "ProggyVector is missing. Run scripts/fetch-deps.ps1 first.")
 endif()
 
@@ -215,7 +215,7 @@ if(MSVC)
     # top multiplies the process count.
     # /external:W0 keeps /W4 meaningful: FFmpeg's headers alone emit dozens of
     # conversion warnings that would otherwise bury our own.
-    target_compile_options(XiaomiViewer PRIVATE /W4 /permissive- /utf-8 /external:W0)
+    target_compile_options(XiaomiViewer PRIVATE /W4 /permissive- /EHsc /utf-8 /external:W0)
     target_compile_options(imgui PRIVATE /utf-8 /external:W0)
     # The app is a windowed process but keeps a console attach path for -console.
     target_link_options(XiaomiViewer PRIVATE /SUBSYSTEM:WINDOWS)
@@ -234,14 +234,14 @@ add_custom_command(TARGET XiaomiViewer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${BRIDGE_DLL}" "$<TARGET_FILE_DIR:XiaomiViewer>"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${UI_FONT_FILE}" "$<TARGET_FILE_DIR:XiaomiViewer>"
+        "${UI_FONT_VECTOR_FILE}" "$<TARGET_FILE_DIR:XiaomiViewer>"
     COMMENT "Staging runtime dependencies next to XiaomiViewer")
 
 set(STAGE_COMMANDS
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${BRIDGE_DLL}" "$<TARGET_FILE_DIR:XiaomiViewer>"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${UI_FONT_FILE}" "$<TARGET_FILE_DIR:XiaomiViewer>")
+        "${UI_FONT_VECTOR_FILE}" "$<TARGET_FILE_DIR:XiaomiViewer>")
 
 foreach(dll avcodec-62 avformat-62 avutil-60 swresample-6)
     list(APPEND STAGE_COMMANDS
@@ -251,7 +251,7 @@ endforeach()
 
 add_custom_target(stage_runtime ALL
     ${STAGE_COMMANDS}
-    DEPENDS "${BRIDGE_DLL}" "${UI_FONT_FILE}"
+    DEPENDS "${BRIDGE_DLL}" "${UI_FONT_VECTOR_FILE}"
     COMMENT "Staging runtime dependencies")
 
 add_dependencies(stage_runtime XiaomiViewer)
@@ -264,7 +264,7 @@ if(BUILD_TESTING)
     target_include_directories(recording_timeline_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src")
     if(MSVC)
-        target_compile_options(recording_timeline_tests PRIVATE /W4 /permissive- /utf-8)
+        target_compile_options(recording_timeline_tests PRIVATE /W4 /permissive- /EHsc /utf-8)
     endif()
     add_test(NAME recording_timeline COMMAND recording_timeline_tests)
 
@@ -280,7 +280,7 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(camera_channel_tests PRIVATE nlohmann_json crypt32 shell32)
     if(MSVC)
-        target_compile_options(camera_channel_tests PRIVATE /W4 /permissive- /utf-8)
+        target_compile_options(camera_channel_tests PRIVATE /W4 /permissive- /EHsc /utf-8)
     endif()
     add_test(NAME camera_channel COMMAND camera_channel_tests)
 endif()

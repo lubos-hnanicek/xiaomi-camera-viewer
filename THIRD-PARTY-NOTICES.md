@@ -20,12 +20,17 @@ That is the `docking` branch's tag of the same release rather than the one on
 the help and log windows be dragged out of the application and become windows of
 their own. The docking feature itself is left switched off.
 
-## ProggyVector
+## UI fonts
 
-The bundled UI font `third_party/proggyvector/ProggyVector-Regular.ttf` is ProggyVector Regular
-by Tristan Grimmer, based on Hack by Source Foundry Authors and Bitstream Vera
-Sans Mono by Bitstream, Inc. The complete upstream license and attribution text
-is included in `LICENSE.PROGGYVECTOR.txt`.
+The optional ProggyVector UI font at
+`third_party/proggyvector/ProggyVector-Regular.ttf` is ProggyVector Regular by
+Tristan Grimmer, based on Hack by Source Foundry Authors and Bitstream Vera Sans
+Mono by Bitstream, Inc. The complete upstream license and attribution text is
+included in `LICENSE.PROGGYVECTOR.txt`.
+
+Dear ImGui also embeds the optional bitmap ProggyClean UI font by Tristan
+Grimmer under the MIT license. The application uses that embedded copy, so it
+does not need a separate runtime font file.
 
 ## FFmpeg
 

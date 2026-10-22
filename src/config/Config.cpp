@@ -28,8 +28,15 @@ constexpr const char* kTokenPrefix = "dpapi:";
 //   1  audio is requested by default, so an "audio": false written by an
 //      earlier build -- which had no way to write anything else -- is history
 //      rather than a preference.
-constexpr int kConfigVersion = 1;
+//   2  the UI font and its configurable vector-font size were added.
+//   3  an omitted UI font uses the Windows Verdana fallback again.
+//   4  an omitted UI font uses ProggyVector again; Windows is explicit-only.
+//   5  other ui_font values are Windows system font names, not aliases.
+constexpr int kConfigVersion = 5;
 constexpr int kAudioVersion = 1;
+constexpr float kDefaultUiFontSize = 15.0f;
+constexpr float kMinimumUiFontSize = 6.0f;
+constexpr float kMaximumUiFontSize = 48.0f;
 
 // The token is protected with the current user's DPAPI key, so the config file
 // is useless if copied to another machine or read by another account. That is
@@ -89,6 +96,16 @@ GridLayout layoutFromInt(int value) {
     case 2: return GridLayout::ThreeByThree;
     default: return GridLayout::Auto;
     }
+}
+
+UiFont uiFontFromName(const std::string& value) {
+    if (value == "ProggyClean") {
+        return UiFont::ProggyClean;
+    }
+    if (value.empty() || value == "ProggyVector") {
+        return UiFont::ProggyVector;
+    }
+    return UiFont::Windows;
 }
 
 } // namespace
@@ -252,6 +269,16 @@ AppConfig AppConfig::load() {
     config.layout = layoutFromInt(root.value("layout", 3));
     config.showCameraControls = root.value("show_camera_controls", true);
     config.uiScale = root.value("ui_scale", 1.0f);
+    const std::string uiFontNameValue = root.value("ui_font", std::string{"ProggyVector"});
+    config.uiFontName = uiFontNameValue;
+    config.uiFont = uiFontFromName(uiFontNameValue);
+    config.uiFontSize = root.value("ui_font_size", kDefaultUiFontSize);
+    if (!std::isfinite(config.uiFontSize) || config.uiFontSize < kMinimumUiFontSize ||
+        config.uiFontSize > kMaximumUiFontSize) {
+        XV_WARN("ui_font_size must be between {} and {}; using {}", kMinimumUiFontSize,
+                kMaximumUiFontSize, kDefaultUiFontSize);
+        config.uiFontSize = kDefaultUiFontSize;
+    }
     config.liveViewZoom = root.value("live_view_zoom", 2.0f);
     if (!std::isfinite(config.liveViewZoom) || config.liveViewZoom < 1.0f) {
         XV_WARN("live_view_zoom must be at least 1.0; using the default 2.0");
@@ -299,6 +326,8 @@ bool AppConfig::save() const {
     root["layout"] = static_cast<int>(layout);
     root["show_camera_controls"] = showCameraControls;
     root["ui_scale"] = uiScale;
+    root["ui_font"] = uiFontName;
+    root["ui_font_size"] = uiFontSize;
     root["live_view_zoom"] = liveViewZoom;
 
     // Only written when it has been changed from the default, so the default can

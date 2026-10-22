@@ -123,8 +123,9 @@ Write-Step "ninja: $ninja"
 
 $imguiHeader = Join-Path $RepoRoot 'third_party\imgui\imgui.h'
 $ffmpegHeader = Join-Path $RepoRoot "third_party\ffmpeg\$Architecture\include\libavcodec\avcodec.h"
-$uiFont = Join-Path $RepoRoot 'third_party\proggyvector\ProggyVector-Regular.ttf'
-if (-not (Test-Path $imguiHeader) -or -not (Test-Path $ffmpegHeader) -or -not (Test-Path $uiFont)) {
+$uiVectorFont = Join-Path $RepoRoot 'third_party\proggyvector\ProggyVector-Regular.ttf'
+if (-not (Test-Path $imguiHeader) -or -not (Test-Path $ffmpegHeader) -or
+    -not (Test-Path $uiVectorFont)) {
     Write-Step "Fetching dependencies"
     & (Join-Path $PSScriptRoot 'fetch-deps.ps1') -Architecture $Architecture
 }

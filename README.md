@@ -294,6 +294,15 @@ Settings and the log live under the **View** menu. Configuration is stored in
 `%APPDATA%\XiaomiViewer\config.json`, next to a log file that is worth reading
 first if a camera will not connect.
 
+The UI font can be selected in `config.json` with `"ui_font": "ProggyClean"`
+or `"ui_font": "ProggyVector"`. With no config file, or when `ui_font` is
+omitted, the default is ProggyVector at 15 px. Any other value is treated as a
+Windows Fonts filename: for example, `"ui_font": "Arial"` tries
+`C:\Windows\Fonts\Arial.ttf`, while `"Arial.ttf"` uses that exact filename.
+`"ui_font_size"` sets the size of ProggyVector and Windows system fonts, with
+15 px as the default. ProggyClean uses Dear ImGui's embedded 13-pixel bitmap
+font and keeps its fixed size.
+
 ## Building
 
 You need Visual Studio 2026 with the C++ toolset, plus Go and a mingw-w64

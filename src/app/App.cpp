@@ -588,6 +588,8 @@ void App::setFullscreen(bool value) {
 
 // --- ImGui ------------------------------------------------------------------
 
+constexpr float kProggyCleanSize = 13.0f;
+
 bool App::setupImGui() {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -599,17 +601,51 @@ bool App::setupImGui() {
     std::string modulePath(MAX_PATH, '\0');
     const DWORD modulePathLength =
         ::GetModuleFileNameA(nullptr, modulePath.data(), static_cast<DWORD>(modulePath.size()));
-    std::filesystem::path fontPath = std::filesystem::current_path() / "ProggyVector-Regular.ttf";
-    if (modulePathLength > 0 && modulePathLength < modulePath.size()) {
-        modulePath.resize(modulePathLength);
-        fontPath = std::filesystem::path(modulePath).parent_path() / "ProggyVector-Regular.ttf";
+    ImFont* font = nullptr;
+    if (config_.uiFont == UiFont::ProggyClean) {
+        font = io.Fonts->AddFontDefaultBitmap();
+    } else {
+        std::filesystem::path fontPath;
+        std::string fontLabel;
+        if (config_.uiFont == UiFont::ProggyVector) {
+            fontLabel = "ProggyVector";
+            const char* fontFileName = "ProggyVector-Regular.ttf";
+            fontPath = std::filesystem::current_path() / fontFileName;
+            if (modulePathLength > 0 && modulePathLength < modulePath.size()) {
+                modulePath.resize(modulePathLength);
+                fontPath = std::filesystem::path(modulePath).parent_path() / fontFileName;
+            }
+        } else {
+            fontLabel = config_.uiFontName;
+            char windowsDirectory[MAX_PATH]{};
+            const UINT windowsDirectoryLength =
+                ::GetWindowsDirectoryA(windowsDirectory, ARRAYSIZE(windowsDirectory));
+            if (windowsDirectoryLength > 0 && windowsDirectoryLength < ARRAYSIZE(windowsDirectory)) {
+                std::filesystem::path fontFileName =
+                    std::filesystem::path(config_.uiFontName).filename();
+                if (fontFileName.extension().empty()) {
+                    fontFileName += ".ttf";
+                }
+                fontPath = std::filesystem::path(windowsDirectory) / "Fonts" / fontFileName;
+            }
+        }
+
+        if (!fontPath.empty()) {
+            const std::string fontPathString = fontPath.string();
+            const float fontSize = config_.uiFont == UiFont::ProggyClean ? kProggyCleanSize : config_.uiFontSize;
+            font = io.Fonts->AddFontFromFileTTF(fontPathString.c_str(), fontSize);
+            if (!font) {
+                XV_WARN("could not load {} UI font from {}", fontLabel, fontPathString);
+            }
+        } else {
+            XV_WARN("could not locate the Windows Fonts directory");
+        }
     }
 
-    const std::string fontPathString = fontPath.string();
-    if (ImFont* font = io.Fonts->AddFontFromFileTTF(fontPathString.c_str(), 15.0f)) {
+    if (font) {
         io.FontDefault = font;
-    } else {
-        XV_WARN("could not load Unicode UI font from {}", fontPathString);
+    } else if (config_.uiFont == UiFont::ProggyClean) {
+        XV_WARN("could not load embedded ProggyClean UI font at {} px", kProggyCleanSize);
     }
 
     // The help and the log are read against the picture, so being unable to put

@@ -95,6 +95,12 @@ enum class GridLayout {
     Auto,
 };
 
+enum class UiFont {
+    Windows,
+    ProggyClean,
+    ProggyVector,
+};
+
 struct AppConfig {
     AccountConfig account;
     std::vector<CameraConfig> cameras;
@@ -102,6 +108,9 @@ struct AppConfig {
     bool showCameraControls = true;
     WindowPlacement window;
     float uiScale = 1.0f;
+    UiFont uiFont = UiFont::ProggyVector;
+    std::string uiFontName = "ProggyVector";
+    float uiFontSize = 15.0f;
     // Magnification used while the right mouse button is held over live video.
     // It is intentionally config-file-only for now; 1.0 disables magnification.
     float liveViewZoom = 2.0f;
