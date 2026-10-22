@@ -20,6 +20,13 @@ That is the `docking` branch's tag of the same release rather than the one on
 the help and log windows be dragged out of the application and become windows of
 their own. The docking feature itself is left switched off.
 
+## ProggyVector
+
+The bundled UI font `src/app/ProggyVector-Regular.ttf` is ProggyVector Regular
+by Tristan Grimmer, based on Hack by Source Foundry Authors and Bitstream Vera
+Sans Mono by Bitstream, Inc. The complete upstream license and attribution text
+is included in `LICENSE.PROGGYVECTOR.txt`.
+
 ## FFmpeg
 
 Video decoding uses [FFmpeg](https://ffmpeg.org/) 8.1, specifically

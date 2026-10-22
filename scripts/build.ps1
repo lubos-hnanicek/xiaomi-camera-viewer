@@ -133,6 +133,14 @@ if (-not (Test-Path $imguiHeader) -or -not (Test-Path $ffmpegHeader)) {
 Write-Step "Configuring ($Configuration)"
 & $cmake -S $RepoRoot -B $BuildDir -G 'Ninja Multi-Config' `
     "-DCMAKE_MAKE_PROGRAM=$ninja" `
+    '-U' 'CMAKE_AR' `
+    '-U' 'CMAKE_DLLTOOL' `
+    '-U' 'CMAKE_LINKER' `
+    '-U' 'CMAKE_NM' `
+    '-U' 'CMAKE_OBJCOPY' `
+    '-U' 'CMAKE_OBJDUMP' `
+    '-U' 'CMAKE_RANLIB' `
+    '-U' 'CMAKE_STRIP' `
     '-DCMAKE_C_COMPILER=cl.exe' `
     '-DCMAKE_CXX_COMPILER=cl.exe' `
     "-DXV_ARCHITECTURE=$Architecture" `

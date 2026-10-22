@@ -112,10 +112,12 @@ if ($Stage) {
 
     Copy-Item (Join-Path $OutputDir 'XiaomiViewer.exe') $StageDir
     Copy-Item (Join-Path $OutputDir '*.dll') $StageDir -ErrorAction SilentlyContinue
+    Copy-Item (Join-Path $OutputDir 'ProggyVector-Regular.ttf') $StageDir
 
     # LICENSE.LGPL-2.1.txt has to travel with the FFmpeg DLLs, not just be
     # referenced from the notices, for the LGPL to be satisfied.
-    foreach ($doc in @('README.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'LICENSE.LGPL-2.1.txt')) {
+    foreach ($doc in @('README.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md',
+            'LICENSE.LGPL-2.1.txt', 'LICENSE.PROGGYVECTOR.txt')) {
         $path = Join-Path $RepoRoot $doc
         if (Test-Path $path) { Copy-Item $path $StageDir }
     }

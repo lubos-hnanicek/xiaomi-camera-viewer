@@ -66,6 +66,7 @@ configure_file(bridge/versioninfo.rc.in "${BRIDGE_VERSION_RC}" @ONLY)
 
 set(THIRD_PARTY "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 set(FFMPEG_DIR "${THIRD_PARTY}/ffmpeg/${XV_ARCHITECTURE}")
+set(UI_FONT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/app/ProggyVector-Regular.ttf")
 
 if(NOT EXISTS "${THIRD_PARTY}/imgui/imgui.h")
     message(FATAL_ERROR "Dependencies are missing. Run scripts/fetch-deps.ps1 first.")
@@ -229,11 +230,15 @@ endif()
 add_custom_command(TARGET XiaomiViewer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${BRIDGE_DLL}" "$<TARGET_FILE_DIR:XiaomiViewer>"
-    COMMENT "Staging xmbridge.dll next to XiaomiViewer")
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${UI_FONT_FILE}" "$<TARGET_FILE_DIR:XiaomiViewer>"
+    COMMENT "Staging runtime dependencies next to XiaomiViewer")
 
 set(STAGE_COMMANDS
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${BRIDGE_DLL}" "$<TARGET_FILE_DIR:XiaomiViewer>")
+        "${BRIDGE_DLL}" "$<TARGET_FILE_DIR:XiaomiViewer>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${UI_FONT_FILE}" "$<TARGET_FILE_DIR:XiaomiViewer>")
 
 foreach(dll avcodec-62 avformat-62 avutil-60 swresample-6)
     list(APPEND STAGE_COMMANDS
@@ -243,7 +248,7 @@ endforeach()
 
 add_custom_target(stage_runtime ALL
     ${STAGE_COMMANDS}
-    DEPENDS "${BRIDGE_DLL}"
+    DEPENDS "${BRIDGE_DLL}" "${UI_FONT_FILE}"
     COMMENT "Staging runtime dependencies")
 
 add_dependencies(stage_runtime XiaomiViewer)

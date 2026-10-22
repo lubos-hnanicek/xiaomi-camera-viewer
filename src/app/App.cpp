@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <unordered_map>
 
 #include "app/Frameless.h"
@@ -595,29 +596,20 @@ bool App::setupImGui() {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.IniFilename = nullptr; // window layout is derived, not persisted
 
-    char windowsDirectory[MAX_PATH]{};
-    const UINT windowsDirectoryLength =
-        ::GetWindowsDirectoryA(windowsDirectory, ARRAYSIZE(windowsDirectory));
-    if (windowsDirectoryLength > 0 && windowsDirectoryLength < ARRAYSIZE(windowsDirectory)) {
-        std::string fontPath(windowsDirectory, windowsDirectoryLength);
-        if (fontPath.back() != '\\') {
-            fontPath.push_back('\\');
-        }
-        fontPath += "Fonts\\segoeui.ttf";
+    std::string modulePath(MAX_PATH, '\0');
+    const DWORD modulePathLength =
+        ::GetModuleFileNameA(nullptr, modulePath.data(), static_cast<DWORD>(modulePath.size()));
+    std::filesystem::path fontPath = std::filesystem::current_path() / "ProggyVector-Regular.ttf";
+    if (modulePathLength > 0 && modulePathLength < modulePath.size()) {
+        modulePath.resize(modulePathLength);
+        fontPath = std::filesystem::path(modulePath).parent_path() / "ProggyVector-Regular.ttf";
+    }
 
-        static const ImWchar kLatinAndCyrillic[] = {
-            0x0020, 0x00FF,
-            0x0400, 0x052F,
-            0,
-        };
-        if (ImFont* font = io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 13.0f, nullptr,
-                                                        kLatinAndCyrillic)) {
-            io.FontDefault = font;
-        } else {
-            XV_WARN("could not load Unicode UI font from {}", fontPath);
-        }
+    const std::string fontPathString = fontPath.string();
+    if (ImFont* font = io.Fonts->AddFontFromFileTTF(fontPathString.c_str(), 15.0f)) {
+        io.FontDefault = font;
     } else {
-        XV_WARN("could not locate the Windows fonts directory");
+        XV_WARN("could not load Unicode UI font from {}", fontPathString);
     }
 
     // The help and the log are read against the picture, so being unable to put
