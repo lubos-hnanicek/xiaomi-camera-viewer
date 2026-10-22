@@ -137,8 +137,8 @@ jobs:
           path: dist/XiaomiViewer-${{ steps.version.outputs.version }}-win-${{ matrix.architecture }}*.zip
           if-no-files-found: error
 
-  # One publisher job owns the draft release so the two matrix legs cannot
-  # race while attaching their archives.
+  # One publisher job owns the release so the two matrix legs cannot race while
+  # attaching their archives.
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: release
@@ -166,16 +166,13 @@ jobs:
           Copy-Item "dist/XiaomiViewer-$env:VERSION-win-x64.zip" 'dist/XiaomiViewer-win-x64.zip'
           Copy-Item "dist/XiaomiViewer-$env:VERSION-win-arm64.zip" 'dist/XiaomiViewer-win-arm64.zip'
 
-      # Left as a draft on purpose: the notes are worth writing by hand, and a
-      # release that publishes itself is one that cannot be reconsidered.
-      - name: Create the draft release
+      - name: Create the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           gh release create $env:TAG `
-            --draft `
             --title "Xiaomi Camera Viewer $env:VERSION" `
             --generate-notes `
             "dist/XiaomiViewer-$env:VERSION-win-x64.zip" `
