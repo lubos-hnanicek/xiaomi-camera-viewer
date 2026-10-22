@@ -3,8 +3,9 @@
     Downloads the third-party dependencies that are not vendored into the repo.
 
 .DESCRIPTION
-    Fetches Dear ImGui (source), nlohmann/json (single header) and a prebuilt
-    LGPL shared FFmpeg (headers + import libs + runtime DLLs) into third_party/.
+    Fetches Dear ImGui (source), nlohmann/json (single header), ProggyVector
+    (the UI font) and a prebuilt LGPL shared FFmpeg (headers + import libs +
+    runtime DLLs) into third_party/.
 
     FFmpeg is taken as a prebuilt binary rather than built from source because
     building it under MSVC needs an MSYS2 shell and takes the better part of an
@@ -42,6 +43,9 @@ $ImGuiCommit = 'b48d1afbe8ee8b238e2961dc363a949dd7304e23'
 
 $JsonTag = 'v3.12.0'
 $JsonSha256 = 'AAF127C04CB31C406E5B04A63F1AE89369FCCDE6D8FA7CDDA1ED4F32DFC5DE63'
+
+$ProggyVectorUrl = 'https://raw.githubusercontent.com/bluescan/proggyfonts/139ec08a38096161291792313ef5803fc4f0e37b/ProggyVector/ProggyVector-Regular.ttf'
+$ProggyVectorSha256 = 'DAE80A9B9BB23A37F60465DD93DE9365A8DDD43300ADC304D96F91CE54C28DD5'
 
 $FFmpegRelease = 'autobuild-2026-07-31-14-10'
 $FFmpegAsset = if ($Architecture -eq 'x64') {
@@ -104,6 +108,21 @@ if (Test-Path $JsonHeader) {
     New-Item -ItemType Directory -Force -Path $JsonDir | Out-Null
     Invoke-WebRequest "https://github.com/nlohmann/json/releases/download/$JsonTag/json.hpp" -OutFile $JsonHeader
     Assert-Sha256 $JsonHeader $JsonSha256
+}
+
+# --- ProggyVector ----------------------------------------------------------
+$ProggyVectorDir = Join-Path $ThirdParty 'proggyvector'
+$ProggyVectorFont = Join-Path $ProggyVectorDir 'ProggyVector-Regular.ttf'
+if ($Force -and (Test-Path $ProggyVectorFont)) {
+    Remove-Item -Force $ProggyVectorFont
+}
+if (Test-Path $ProggyVectorFont) {
+    Write-Step "ProggyVector already present, skipping"
+} else {
+    Write-Step "Downloading ProggyVector UI font"
+    New-Item -ItemType Directory -Force -Path $ProggyVectorDir | Out-Null
+    Invoke-WebRequest $ProggyVectorUrl -OutFile $ProggyVectorFont
+    Assert-Sha256 $ProggyVectorFont $ProggyVectorSha256
 }
 
 # --- FFmpeg -----------------------------------------------------------------

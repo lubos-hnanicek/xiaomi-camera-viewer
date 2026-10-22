@@ -66,13 +66,16 @@ configure_file(bridge/versioninfo.rc.in "${BRIDGE_VERSION_RC}" @ONLY)
 
 set(THIRD_PARTY "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 set(FFMPEG_DIR "${THIRD_PARTY}/ffmpeg/${XV_ARCHITECTURE}")
-set(UI_FONT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/app/ProggyVector-Regular.ttf")
+set(UI_FONT_FILE "${THIRD_PARTY}/proggyvector/ProggyVector-Regular.ttf")
 
 if(NOT EXISTS "${THIRD_PARTY}/imgui/imgui.h")
     message(FATAL_ERROR "Dependencies are missing. Run scripts/fetch-deps.ps1 first.")
 endif()
 if(NOT EXISTS "${FFMPEG_DIR}/include/libavcodec/avcodec.h")
     message(FATAL_ERROR "FFmpeg is missing. Run scripts/fetch-deps.ps1 first.")
+endif()
+if(NOT EXISTS "${UI_FONT_FILE}")
+    message(FATAL_ERROR "ProggyVector is missing. Run scripts/fetch-deps.ps1 first.")
 endif()
 
 # --- Dear ImGui -------------------------------------------------------------

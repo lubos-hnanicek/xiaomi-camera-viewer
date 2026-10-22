@@ -9,6 +9,7 @@
 /third_party/ffmpeg/
 /third_party/nlohmann/
 /third_party/go2rtc/
+/third_party/proggyvector/
 
 # Local verification tooling
 /tools/

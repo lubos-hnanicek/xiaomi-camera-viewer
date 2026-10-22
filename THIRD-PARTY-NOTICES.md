@@ -22,7 +22,7 @@ their own. The docking feature itself is left switched off.
 
 ## ProggyVector
 
-The bundled UI font `src/app/ProggyVector-Regular.ttf` is ProggyVector Regular
+The bundled UI font `third_party/proggyvector/ProggyVector-Regular.ttf` is ProggyVector Regular
 by Tristan Grimmer, based on Hack by Source Foundry Authors and Bitstream Vera
 Sans Mono by Bitstream, Inc. The complete upstream license and attribution text
 is included in `LICENSE.PROGGYVECTOR.txt`.

@@ -307,7 +307,7 @@ winget install --id BrechtSanders.WinLibs.POSIX.UCRT
 Then:
 
 ```powershell
-.\scripts\fetch-deps.ps1     # Dear ImGui, nlohmann/json, prebuilt FFmpeg
+.\scripts\fetch-deps.ps1     # Dear ImGui, nlohmann/json, ProggyVector, FFmpeg
 .\scripts\build.ps1          # configure and build everything
 .\scripts\build.ps1 -Package # ...and write a redistributable zip to dist\
 ```
