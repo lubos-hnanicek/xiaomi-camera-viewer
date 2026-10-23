@@ -118,6 +118,7 @@ public:
     // Adds a camera (or one lens of a dual-lens camera) to the grid.
     void addCamera(const DiscoveredDevice& device, const std::string& channel);
     void removeCamera(size_t index);
+    void moveCamera(size_t from, size_t to);
 
     void startStreams();
     void stopStreams(bool preserveGlobalRecording = false);

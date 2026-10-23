@@ -98,6 +98,9 @@ as soon as a camera is added.
 
 Click a tile to select it, or walk through them with `Tab` and `Shift+Tab`.
 Double-click a tile, or press `F`, to focus a single camera; `Esc` goes back. The
+grid order can be changed by holding `Alt` and dragging a tile with the left
+mouse button. The order is saved in `%APPDATA%\XiaomiViewer\config.json` and
+restored when the app starts. The
 arrow keys pan and tilt the selected camera, holding the movement for as long as
 the key is down, `R` starts or stops recording it, and `A` listens to it. Hold
 the right mouse button over live video to magnify it, then move the mouse while

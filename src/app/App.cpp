@@ -1470,6 +1470,41 @@ void App::removeCamera(size_t index) {
     XV_INFO("removed {} from the grid", label);
 }
 
+void App::moveCamera(size_t from, size_t to) {
+    if (from >= streams_.size() || to >= streams_.size() || from == to ||
+        from >= config_.cameras.size() || to >= config_.cameras.size()) {
+        return;
+    }
+
+    if (selected_ == static_cast<int>(from)) {
+        selected_ = static_cast<int>(to);
+    } else if (from < to && selected_ > static_cast<int>(from) &&
+               selected_ <= static_cast<int>(to)) {
+        --selected_;
+    } else if (to < from && selected_ >= static_cast<int>(to) &&
+               selected_ < static_cast<int>(from)) {
+        ++selected_;
+    }
+
+    if (from < to) {
+        std::rotate(streams_.begin() + static_cast<ptrdiff_t>(from),
+                    streams_.begin() + static_cast<ptrdiff_t>(from + 1),
+                    streams_.begin() + static_cast<ptrdiff_t>(to + 1));
+        std::rotate(config_.cameras.begin() + static_cast<ptrdiff_t>(from),
+                    config_.cameras.begin() + static_cast<ptrdiff_t>(from + 1),
+                    config_.cameras.begin() + static_cast<ptrdiff_t>(to + 1));
+    } else {
+        std::rotate(streams_.begin() + static_cast<ptrdiff_t>(to),
+                    streams_.begin() + static_cast<ptrdiff_t>(from),
+                    streams_.begin() + static_cast<ptrdiff_t>(from + 1));
+        std::rotate(config_.cameras.begin() + static_cast<ptrdiff_t>(to),
+                    config_.cameras.begin() + static_cast<ptrdiff_t>(from),
+                    config_.cameras.begin() + static_cast<ptrdiff_t>(from + 1));
+    }
+
+    config_.save();
+}
+
 void App::startStreams() {
     // Rebuild the worker list from configuration so this doubles as the
     // "apply changes" path.

@@ -162,6 +162,7 @@ void drawControls() {
     static constexpr std::array kGridMouse{
         Binding{"Left click a tile", "Select that camera or recording track"},
         Binding{"Double-click a tile", "Show only that camera or track, and go back"},
+        Binding{"Alt + left-drag a tile", "Change its position in the grid; the order is saved and restored"},
         Binding{"Hold the right button", "Magnify the picture around the pointer"},
         Binding{"Move while holding it", "Pan around the magnified picture"},
         Binding{"Release the right button", "Back to the whole picture"},

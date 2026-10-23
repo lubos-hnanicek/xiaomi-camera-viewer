@@ -65,6 +65,8 @@ struct LiveViewZoomState {
     ImVec2 center = ImVec2(0.5f, 0.5f);
 };
 
+constexpr char kCameraTilePayload[] = "XiaomiViewerCameraTile";
+
 LiveViewZoomState& liveViewZoomState() {
     static LiveViewZoomState state;
     return state;
@@ -121,6 +123,7 @@ void letterbox(float boxWidth, float boxHeight, float contentWidth, float conten
 
 void drawTile(App& app, size_t index, CameraStream& stream, ImVec2 size, bool focused) {
     ImGui::PushID(static_cast<int>(index));
+    const bool reorderEnabled = ImGui::GetIO().KeyAlt;
 
     ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::kTileBackground);
     ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, focused ? 2.0f : 1.0f);
@@ -217,7 +220,9 @@ void drawTile(App& app, size_t index, CameraStream& stream, ImVec2 size, bool fo
         ImGui::InvisibleButton("##focus", ImVec2(available.x, videoHeight),
                                ImGuiButtonFlags_MouseButtonLeft);
         if (ImGui::IsItemHovered()) {
-            ImGui::SetMouseCursor(zoomActive ? ImGuiMouseCursor_ResizeAll : ImGuiMouseCursor_Hand);
+            ImGui::SetMouseCursor(zoomActive ? ImGuiMouseCursor_ResizeAll
+                                             : reorderEnabled ? ImGuiMouseCursor_Hand
+                                                               : ImGuiMouseCursor_Arrow);
         }
         if (ImGui::IsItemClicked()) {
             app.setSelected(static_cast<int>(index));
@@ -225,6 +230,12 @@ void drawTile(App& app, size_t index, CameraStream& stream, ImVec2 size, bool fo
         if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
             app.setSelected(static_cast<int>(index));
             app.setFullscreenTile(!app.fullscreenTile());
+        }
+        if (reorderEnabled && ImGui::BeginDragDropSource()) {
+            const int sourceIndex = static_cast<int>(index);
+            ImGui::SetDragDropPayload(kCameraTilePayload, &sourceIndex, sizeof(sourceIndex));
+            ImGui::TextUnformatted(stream.config.label().c_str());
+            ImGui::EndDragDropSource();
         }
 
         // Footer: name on the left, live state and resolution on the right.
@@ -302,6 +313,20 @@ void drawTile(App& app, size_t index, CameraStream& stream, ImVec2 size, bool fo
         }
     }
     ImGui::EndChild();
+
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kCameraTilePayload);
+            payload != nullptr && payload->DataSize == sizeof(int)) {
+            const int sourceIndex = *static_cast<const int*>(payload->Data);
+            if (sourceIndex >= 0) {
+                app.moveCamera(static_cast<size_t>(sourceIndex), index);
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+    if (reorderEnabled && ImGui::IsItemHovered()) {
+        ImGui::SetItemTooltip("Drag to change camera order");
+    }
 
     ImGui::PopStyleColor(2);
     ImGui::PopStyleVar();
