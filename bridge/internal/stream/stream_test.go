@@ -1,10 +1,56 @@
 package stream
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/spec8472/xiaomi-viewer/bridge/internal/miss"
 )
+
+func TestMediaHeadersPreserveUnknownCodecsWithoutPayloads(t *testing.T) {
+	session := &Session{}
+	packet := &miss.Packet{
+		CodecID: 4242,
+		Header:  bytes.Repeat([]byte{0xab}, 32),
+		Payload: []byte("private camera footage"),
+	}
+	session.recordMediaHeader(packet)
+	packet.Header[0] = 0
+	headers := session.MediaHeaders()
+	if len(headers) != 1 || !strings.Contains(headers[0], "codec=4242") ||
+		!strings.Contains(headers[0], "header=abab") {
+		t.Fatalf("missing stable raw header evidence: %v", headers)
+	}
+	if strings.Contains(headers[0], "private") || strings.Contains(headers[0], "70726976617465") {
+		t.Fatalf("header capture included media payload: %v", headers)
+	}
+	if len(session.MediaHeaders()) != 0 {
+		t.Fatal("header capture did not drain")
+	}
+}
+
+func TestMediaHeaderCaptureIsBounded(t *testing.T) {
+	session := &Session{}
+	for sequence := 0; sequence < headerLogDepth+10; sequence++ {
+		session.recordMediaHeader(&miss.Packet{Sequence: uint32(sequence)})
+	}
+	headers := session.MediaHeaders()
+	if len(headers) != headerLogDepth || !strings.Contains(headers[0], "sequence=10 ") {
+		t.Fatalf("capture did not retain its bounded tail: %d headers", len(headers))
+	}
+}
+
+func TestSharedMediaHeaderCaptureExcludesPayloadTail(t *testing.T) {
+	physical := &sharedPhysical{}
+	header := append(bytes.Repeat([]byte{0xab}, 32), []byte("private camera footage")...)
+	physical.recordHeader(header, -1)
+	headers := physical.MediaHeaders()
+	if len(headers) != 1 || strings.Contains(headers[0], "70726976617465") ||
+		!strings.HasSuffix(headers[0], strings.Repeat("ab", 32)) {
+		t.Fatalf("shared capture did not keep exactly the header: %v", headers)
+	}
+}
 
 // Flags words as a real CW500 sends them, measured with one lens streaming at a
 // time so the sender of each was known. The pair per lens is the same picture

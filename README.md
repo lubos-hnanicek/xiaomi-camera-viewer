@@ -146,6 +146,42 @@ handled too, since MISS names them, but no camera has been seen to use them.
 `scripts/probe-audio.ps1` reports what a camera actually sends, which is how
 that was settled and how a model that sends something else would be found.
 
+## Helping support another camera
+
+Sign in, close Mi Home live view, and open **Help -> Camera diagnostics**. Refresh
+the account list and select any camera, including an unsupported model that has
+never been added to the grid. Choose **Collect diagnostics**. The selected
+camera's live tiles pause during collection and resume afterwards; other cameras
+keep running. Stop this camera's recordings and close SD playback first.
+
+The dialog shows progress, supports cancellation, and opens the completed bundle
+folder and owner report. App-launched reports are saved under
+`%APPDATA%\XiaomiViewer\Diagnostics`. No console or developer tools are needed.
+
+The package also includes `collect-camera-diagnostics.ps1` for standalone use.
+Close the viewer before running it from PowerShell in the unpacked folder:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\collect-camera-diagnostics.ps1
+```
+
+Choose the camera when prompted. Standalone runs put a reviewable folder and ZIP
+on your Desktop. Both workflows include model/specification data, read-only property results,
+transport negotiation, command replies, RDT observations and media headers. It
+also keeps partial results when a camera cannot connect. No developer tools,
+administrator rights, camera credentials or configuration edits are needed.
+The execution-policy override applies only to this PowerShell process.
+
+Fill in the folder's `owner-report.txt`, inspect the files for personal data,
+and re-zip the folder before sharing. Account tokens, session keys and media
+payloads are excluded; nothing is uploaded automatically. SD catalogue
+inspection, viewer logs and firmware URL discovery are opt-in.
+
+See [the camera diagnostics guide](docs/camera-diagnostics.md) for options,
+privacy limits, and the next steps when Mi Home/plugin or firmware evidence is
+needed. A report helps establish what is missing; it cannot guarantee support
+for a different transport or substitute for every hardware experiment.
+
 ## Windows Firewall
 
 The app must be allowed to receive UDP. Without that, no camera connects.

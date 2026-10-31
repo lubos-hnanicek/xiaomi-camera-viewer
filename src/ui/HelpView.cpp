@@ -373,6 +373,42 @@ void drawTroubleshooting(App& app) {
     }
 }
 
+void drawDiagnosticsHelp(App& app) {
+    ImGui::SeparatorText("Collecting for an unsupported camera");
+    paragraph("Help -> Camera diagnostics opens the camera list from the signed-in Xiaomi account, "
+              "including unsupported models and cameras not added to the grid. Refresh the list, "
+              "select a camera and choose Collect diagnostics. The region must match Mi Home.");
+    paragraph("Close Mi Home live view first. This camera's running live tiles pause during collection "
+              "and resume afterwards; other cameras are left running. Stop recordings for the "
+              "selected camera and close SD playback before collecting. Cancellation waits for "
+              "the current network request to finish. Closing this app also requests cancellation.");
+    ImGui::BeginDisabled(!app.signedIn());
+    if (ImGui::Button("Open camera diagnostics")) {
+        app.openCameraDiagnostics();
+    }
+    ImGui::EndDisabled();
+
+    ImGui::SeparatorText("Privacy and sharing");
+    paragraph("The ZIP contains model/specification data, read-only property results, transport "
+              "negotiation, command/RDT observations and bounded media headers. It does not "
+              "contain the configuration, account credentials, session keys or video/audio payloads. "
+              "Microphone packets are requested but are not played or saved. Nothing is uploaded.");
+    paragraph("SD catalogue summaries, firmware URL queries and the application log are opt-in. "
+              "Storage replies can reveal recording activity and the log can describe other cameras. "
+              "Automatic redaction can miss undocumented fields, free-form text or signed URLs. "
+              "Review every file before sharing and use a private channel for sensitive evidence.");
+    paragraph("Open bundle folder after collection, fill in owner-report.txt, and re-zip the folder "
+              "to include the edits. Reports are stored under %APPDATA%\\XiaomiViewer\\Diagnostics. "
+              "A partial report is useful even when the camera cannot connect.");
+    ImGui::SeparatorText("When more evidence is needed");
+    paragraph("This is a viewer-side capture, not a PCAP of Mi Home. A different transport, "
+              "undecodable framing or a missing reply may need an official firmware image, an "
+              "authorised plugin package or a focused owner-controlled phone/network capture. "
+              "The packaged camera-diagnostics.md guide describes these follow-up steps. "
+              "Do not send credentials or disable TLS; silence alone does not prove a command "
+              "is unsupported.");
+}
+
 void drawAbout() {
     ImGui::SeparatorText("Xiaomi Camera Viewer");
 
@@ -484,6 +520,14 @@ void drawHelpWindow(App& app, bool& open, const char*& tab) {
         if (ImGui::BeginTabItem(kHelpTabTrouble, nullptr, flagsFor(kHelpTabTrouble))) {
             if (page("##trouble")) {
                 drawTroubleshooting(app);
+            }
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem(kHelpTabDiagnostics, nullptr, flagsFor(kHelpTabDiagnostics))) {
+            if (page("##diagnosticshelp")) {
+                drawDiagnosticsHelp(app);
             }
             ImGui::EndChild();
             ImGui::EndTabItem();

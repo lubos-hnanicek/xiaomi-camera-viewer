@@ -2,7 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
+
+	"github.com/spec8472/xiaomi-viewer/bridge/internal/cloud"
 )
 
 func decode(t *testing.T, payload []byte) map[string]any {
@@ -24,6 +27,7 @@ func TestHandleCallAlwaysReturnsEnvelope(t *testing.T) {
 		"login.token",
 		"account.forget",
 		"device.list",
+		"device.diagnostics",
 		"miot.get",
 		"miot.set",
 		"miot.action",
@@ -118,11 +122,34 @@ func TestLoginRequiresCredentials(t *testing.T) {
 }
 
 func TestCallsAgainstAnUnknownAccountFail(t *testing.T) {
-	for _, method := range []string{"device.list", "miot.get", "miot.set", "miot.action"} {
+	for _, method := range []string{"device.list", "device.diagnostics", "miot.get", "miot.set", "miot.action"} {
 		t.Run(method, func(t *testing.T) {
 			out := decode(t, handleCall(method, []byte(`{"user_id":"nobody","did":"1"}`)))
 			if out["ok"] != false {
 				t.Errorf("expected %s to fail for an account that is not signed in", method)
+			}
+		})
+	}
+}
+
+func TestTransportDiagnosticsExcludeKeyMaterial(t *testing.T) {
+	for _, vendor := range []string{"cs2", "tutk", "agora", "mtp", "99"} {
+		t.Run(vendor, func(t *testing.T) {
+			payload := transportDiagnostics(&cloud.MissSession{
+				Vendor:        vendor,
+				UID:           "sensitive-peer-id",
+				DevicePublic:  "sensitive-device-key",
+				ClientPublic:  "sensitive-client-key",
+				ClientPrivate: "sensitive-private-key",
+				Sign:          "sensitive-signature",
+			})
+			if strings.Contains(string(payload), "sensitive-") {
+				t.Fatalf("diagnostics leaked credentials: %s", payload)
+			}
+			out := decode(t, payload)
+			if out["vendor"] != vendor || out["implemented"] != (vendor == "cs2") ||
+				out["key_exchange_ready"] != true || out["peer_id_available"] != true {
+				t.Fatalf("diagnostics lost negotiation evidence: %s", payload)
 			}
 		})
 	}

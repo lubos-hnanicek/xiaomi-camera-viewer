@@ -57,6 +57,9 @@ const char* xmb_version(void);
  *   account.forget {user_id}
  *   device.list    {user_id, region}
  *                    -> {ok, devices:[{did,name,model,ip,mac}]}
+ *   device.diagnostics {user_id, did}
+ *                    -> {ok, vendor, implemented, key_exchange_ready,
+ *                        peer_id_available}; no peer ID or key material
  *   miot.get       {user_id, region, did, props:[{siid,piid}]}
  *                    -> {ok, result:[{siid,piid,value,code}]}
  *   miot.set       {user_id, region, did, props:[{siid,piid,value}]}
@@ -102,6 +105,10 @@ int xmb_stream_read(void* handle, unsigned char* buf, int cap, XmbFrame* meta);
  *   ptz.raw         {body:"<motor payload>"}  diagnostic, for an unknown model
  *   stats           {} -> {ok, frames, bytes, dropped, replies, last_reply,
  *                          audio_asked}
+ *   replies         {} -> {ok, replies, unhandled, tap}; drains captured replies
+ *   media.headers   {} -> {ok, headers}; drains bounded header-only samples,
+ *                         including codecs the viewer does not decode
+ *   recordings.inspect {channel} -> {ok, index}; SD catalogue summary
  *   recordings.list {channel} -> {ok, clips:[{start, duration, event?}, ...]}
  *   recordings.file {start, channel} -> {ok, found, path, size}
  *   playback.start  {start, end, lenses:[...]}

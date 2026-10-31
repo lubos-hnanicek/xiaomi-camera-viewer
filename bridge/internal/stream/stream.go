@@ -143,6 +143,9 @@ type Session struct {
 	replyMu  sync.Mutex
 	replyLog []reply
 
+	headerMu  sync.Mutex
+	headerLog []string
+
 	Protocol   string
 	RemoteAddr string
 }
@@ -335,6 +338,7 @@ func (s *Session) reader() {
 			return
 		}
 
+		s.recordMediaHeader(pkt)
 		frame := toFrame(pkt)
 		if frame == nil {
 			continue // a codec we do not handle
@@ -832,15 +836,31 @@ func (s *Session) playback(body string) (recordings.Status, error) {
 	}
 }
 
-// MediaHeaders hands back the raw media headers a dual-lens session has seen,
-// each with the lens it was routed to, and forgets them. Only a shared session
-// captures them, because separating one camera's two interleaved streams is the
-// only thing here that has to know more than the header's known fields say.
-func (s *Session) MediaHeaders() []string {
-	if s.shared == nil {
-		return nil
+func (s *Session) recordMediaHeader(packet *miss.Packet) {
+	header := packet.Header
+	if len(header) > 32 {
+		header = header[:32]
 	}
-	return s.shared.MediaHeaders()
+	sample := fmt.Sprintf("codec=%d sequence=%d timestamp=%d flags=%#x size=%d header=%x",
+		packet.CodecID, packet.Sequence, packet.Timestamp, packet.Flags, len(packet.Payload), header)
+	s.headerMu.Lock()
+	defer s.headerMu.Unlock()
+	if len(s.headerLog) == headerLogDepth {
+		s.headerLog = append(s.headerLog[:0], s.headerLog[1:]...)
+	}
+	s.headerLog = append(s.headerLog, sample)
+}
+
+// MediaHeaders drains bounded header-only samples, including unknown codecs.
+func (s *Session) MediaHeaders() []string {
+	if s.shared != nil {
+		return s.shared.MediaHeaders()
+	}
+	s.headerMu.Lock()
+	defer s.headerMu.Unlock()
+	out := s.headerLog
+	s.headerLog = nil
+	return out
 }
 
 // Unhandled describes traffic the transport had nowhere to put, per channel, as

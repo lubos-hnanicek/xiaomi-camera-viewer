@@ -119,6 +119,9 @@ func (p *sharedPhysical) recordHeader(header []byte, lane int) {
 	if len(header) == 0 {
 		return
 	}
+	if len(header) > 32 {
+		header = header[:32]
+	}
 
 	p.headerMu.Lock()
 	defer p.headerMu.Unlock()
@@ -376,6 +379,7 @@ func (p *sharedPhysical) reader() {
 
 		frame := toFrame(packet)
 		if frame == nil {
+			p.recordHeader(packet.Header, -1)
 			continue
 		}
 
@@ -388,6 +392,7 @@ func (p *sharedPhysical) reader() {
 		}
 
 		if frame.Kind == KindAudio {
+			p.recordHeader(packet.Header, -1)
 			p.audioSeen = true
 			for session := range p.sessions {
 				if session.wantAudio {

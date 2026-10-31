@@ -150,6 +150,7 @@ add_custom_target(bridge DEPENDS "${BRIDGE_DLL}")
 add_executable(XiaomiViewer WIN32
     src/main.cpp
     src/app/App.cpp
+    src/app/CameraDiagnostics.cpp
     src/app/Frameless.cpp
     src/app/Log.cpp
     src/app/SingleInstance.cpp
@@ -170,6 +171,7 @@ add_executable(XiaomiViewer WIN32
     src/render/D3D11Context.cpp
     src/render/VideoFrameTexture.cpp
     src/ui/CamerasView.cpp
+    src/ui/DiagnosticsView.cpp
     src/ui/GridView.cpp
     src/ui/HelpView.cpp
     src/ui/LoginView.cpp
@@ -235,13 +237,21 @@ add_custom_command(TARGET XiaomiViewer POST_BUILD
             "${BRIDGE_DLL}" "$<TARGET_FILE_DIR:XiaomiViewer>"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${UI_FONT_VECTOR_FILE}" "$<TARGET_FILE_DIR:XiaomiViewer>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/collect-camera-diagnostics.ps1" "$<TARGET_FILE_DIR:XiaomiViewer>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/docs/camera-diagnostics.md" "$<TARGET_FILE_DIR:XiaomiViewer>"
     COMMENT "Staging runtime dependencies next to XiaomiViewer")
 
 set(STAGE_COMMANDS
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${BRIDGE_DLL}" "$<TARGET_FILE_DIR:XiaomiViewer>"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${UI_FONT_VECTOR_FILE}" "$<TARGET_FILE_DIR:XiaomiViewer>")
+        "${UI_FONT_VECTOR_FILE}" "$<TARGET_FILE_DIR:XiaomiViewer>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/collect-camera-diagnostics.ps1" "$<TARGET_FILE_DIR:XiaomiViewer>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/docs/camera-diagnostics.md" "$<TARGET_FILE_DIR:XiaomiViewer>")
 
 foreach(dll avcodec-62 avformat-62 avutil-60 swresample-6)
     list(APPEND STAGE_COMMANDS
@@ -252,6 +262,8 @@ endforeach()
 add_custom_target(stage_runtime ALL
     ${STAGE_COMMANDS}
     DEPENDS "${BRIDGE_DLL}" "${UI_FONT_VECTOR_FILE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/collect-camera-diagnostics.ps1"
+        "${CMAKE_CURRENT_SOURCE_DIR}/docs/camera-diagnostics.md"
     COMMENT "Staging runtime dependencies")
 
 add_dependencies(stage_runtime XiaomiViewer)
@@ -259,6 +271,20 @@ add_dependencies(stage_runtime XiaomiViewer)
 # --- Hardware-independent tests --------------------------------------------
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(camera_diagnostics_tests
+        tests/CameraDiagnosticsTests.cpp
+        src/app/CameraDiagnostics.cpp)
+    target_include_directories(camera_diagnostics_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_compile_definitions(camera_diagnostics_tests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_link_libraries(camera_diagnostics_tests PRIVATE nlohmann_json ole32)
+    if(MSVC)
+        target_compile_options(camera_diagnostics_tests PRIVATE /W4 /permissive- /EHsc /utf-8)
+    endif()
+    add_test(NAME camera_diagnostics COMMAND camera_diagnostics_tests
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/collect-camera-diagnostics.ps1")
+
     add_executable(recording_timeline_tests
         tests/RecordingTimelineTests.cpp)
     target_include_directories(recording_timeline_tests PRIVATE

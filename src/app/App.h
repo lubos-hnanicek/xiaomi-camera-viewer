@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "app/Frameless.h"
+#include "app/CameraDiagnostics.h"
 #include "cloud/Miot.h"
 #include "config/Config.h"
 #include "media/AudioPlayer.h"
@@ -114,6 +115,23 @@ public:
     void refreshDevices();
     [[nodiscard]] bool devicesBusy() const { return deviceTask_.busy(); }
     [[nodiscard]] const std::string& deviceError() const { return deviceError_; }
+
+    struct DiagnosticsViewState {
+        bool open = false;
+        std::string selectedDid;
+        bool includeStorage = false;
+        bool includeFirmwareInfo = false;
+        bool includeAppLog = false;
+        std::string error;
+    };
+    DiagnosticsViewState& diagnosticsView() { return diagnosticsView_; }
+    CameraDiagnostics& cameraDiagnostics() { return cameraDiagnostics_; }
+    void openCameraDiagnostics();
+    void collectCameraDiagnostics(const DiscoveredDevice& device);
+    [[nodiscard]] std::string diagnosticsBlockedReason(const std::string& did) const;
+    void openDiagnosticsFolder() const;
+    void openDiagnosticsReport() const;
+    void showDiagnosticsHelp();
 
     // Adds a camera (or one lens of a dual-lens camera) to the grid.
     void addCamera(const DiscoveredDevice& device, const std::string& channel);
@@ -285,6 +303,10 @@ private:
     AsyncTask<Json> deviceTask_;
     AsyncTask<Json> restoreTask_;
     std::string deviceError_;
+    CameraDiagnostics cameraDiagnostics_;
+    DiagnosticsViewState diagnosticsView_;
+    std::string diagnosticCameraDid_;
+    std::vector<CameraConfig> diagnosticResumeCameras_;
 
     // Declared before the streams so it outlives them: a worker feeding it must
     // be gone before the player it feeds is.

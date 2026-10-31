@@ -13,6 +13,8 @@ void drawLoginView(App& app);
 // Device discovery: what the account can see, and what is already on the grid.
 void drawCamerasView(App& app);
 
+void drawCameraDiagnosticsWindow(App& app);
+
 // The live video grid.
 void drawGridView(App& app);
 
@@ -35,6 +37,7 @@ inline constexpr const char* kHelpTabControls = "Controls";
 inline constexpr const char* kHelpTabRecording = "Recording and sound";
 inline constexpr const char* kHelpTabCameras = "Cameras";
 inline constexpr const char* kHelpTabTrouble = "Troubleshooting";
+inline constexpr const char* kHelpTabDiagnostics = "Diagnostics";
 inline constexpr const char* kHelpTabAbout = "About";
 
 // Instructions, including what every key and mouse button does. `open` is the

@@ -95,6 +95,8 @@ func handleCall(method string, request []byte) []byte {
 		return handleAccountForget(request)
 	case "device.list":
 		return handleDeviceList(request)
+	case "device.diagnostics":
+		return handleDeviceDiagnostics(request)
 	case "miot.get":
 		return handleMiotGet(request)
 	case "miot.set":
@@ -261,6 +263,37 @@ func handleDeviceList(request []byte) []byte {
 	}
 
 	return okResponse(map[string]any{"devices": list})
+}
+
+func handleDeviceDiagnostics(request []byte) []byte {
+	var req struct {
+		UserID string `json:"user_id"`
+		Did    string `json:"did"`
+	}
+	if err := json.Unmarshal(request, &req); err != nil {
+		return errResponse(err)
+	}
+	if req.Did == "" {
+		return errString("bridge: did is required")
+	}
+	acc, err := registry.Get(req.UserID)
+	if err != nil {
+		return errResponse(err)
+	}
+	session, err := acc.MissVendor(req.Did)
+	if err != nil {
+		return errResponse(err)
+	}
+	return transportDiagnostics(session)
+}
+
+func transportDiagnostics(session *cloud.MissSession) []byte {
+	return okResponse(map[string]any{
+		"vendor":             session.Vendor,
+		"implemented":        session.Vendor == "cs2",
+		"key_exchange_ready": session.DevicePublic != "" && session.Sign != "",
+		"peer_id_available":  session.UID != "",
+	})
 }
 
 // --- MIoT -------------------------------------------------------------------
@@ -723,10 +756,7 @@ func handleStreamCommand(s *stream.Session, request []byte) []byte {
 			"tap":       s.Tap(),
 		})
 
-	// A diagnostic for dual-lens cameras: the media headers as they arrived,
-	// each with the lens the session routed it to. This is what says whether a
-	// tile is being fed its own lens and nothing else, which no amount of
-	// reasoning about the routing can establish. See scripts/probe-lens-id.ps1.
+	// Header-only evidence also survives codecs the viewer cannot decode.
 	case "media.headers":
 		return okResponse(map[string]any{"headers": s.MediaHeaders()})
 

@@ -152,7 +152,7 @@ if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed" }
 if ($TestsOnly) {
     Write-Step "Building native tests with at most $Jobs parallel compilations"
     & $cmake --build $BuildDir --config $Configuration `
-        --target recording_timeline_tests camera_channel_tests --parallel $Jobs
+        --target recording_timeline_tests camera_channel_tests camera_diagnostics_tests --parallel $Jobs
     if ($LASTEXITCODE -ne 0) { throw "Test build failed" }
 
     Write-Step "Running native tests"

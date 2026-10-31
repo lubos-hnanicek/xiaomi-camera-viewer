@@ -775,6 +775,7 @@ int App::run(HINSTANCE instance, int showCommand) {
     }
 
     XV_INFO("shutting down");
+    cameraDiagnostics_.cancel();
     playback_.close();
     stopStreams();
     audio_.stop();
@@ -812,6 +813,9 @@ void App::frame() {
     handleGlobalKeys();
     if (!fullscreen_) {
         drawMenuBar();
+    }
+    if (diagnosticsView_.open) {
+        drawCameraDiagnosticsWindow(*this);
     }
 
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -1090,6 +1094,12 @@ void App::drawMenuBar() {
             showHelpWindow_ = true;
             helpTab_ = kHelpTabTrouble;
         }
+        if (ImGui::MenuItem("Camera diagnostics...", nullptr, false, signedIn_)) {
+            openCameraDiagnostics();
+        }
+        if (!signedIn_) {
+            ImGui::SetItemTooltip("Sign in to select a camera from your Xiaomi account.");
+        }
         ImGui::Separator();
         if (ImGui::MenuItem("About")) {
             showHelpWindow_ = true;
@@ -1175,6 +1185,29 @@ void App::drawCaptionButtons(float dragFrom) {
 // --- Tasks ------------------------------------------------------------------
 
 void App::pumpTasks() {
+    const bool diagnosticsWereBusy = cameraDiagnostics_.busy();
+    cameraDiagnostics_.poll();
+    if (diagnosticsWereBusy && !cameraDiagnostics_.busy()) {
+        if (signedIn_) {
+            for (auto& stream : streams_) {
+                const bool resume = std::any_of(diagnosticResumeCameras_.begin(), diagnosticResumeCameras_.end(),
+                    [&](const CameraConfig& camera) {
+                        return camera.did == stream->config.did && camera.channel == stream->config.channel;
+                    });
+                const auto camera = std::find_if(config_.cameras.begin(), config_.cameras.end(),
+                    [&](const CameraConfig& configured) {
+                        return configured.did == stream->config.did && configured.channel == stream->config.channel;
+                    });
+                if (resume && camera != config_.cameras.end() && camera->enabled) {
+                    stream->config = *camera;
+                    restartStream(*stream);
+                }
+            }
+        }
+        diagnosticResumeCameras_.clear();
+        diagnosticCameraDid_.clear();
+    }
+
     if (auto result = restoreTask_.poll()) {
         if (responseOk(*result)) {
             signedIn_ = true;
@@ -1207,7 +1240,13 @@ void App::pumpTasks() {
     }
 
     if (auto result = deviceTask_.poll()) {
-        if (responseOk(*result)) {
+        const bool currentAccount = signedIn_ &&
+            result->value("_requested_user_id", std::string{}) == config_.account.userId;
+        if (!currentAccount) {
+            if (signedIn_) {
+                refreshDevices();
+            }
+        } else if (responseOk(*result)) {
             devices_.clear();
             for (const auto& entry : (*result)["devices"]) {
                 devices_.push_back(DiscoveredDevice{
@@ -1219,6 +1258,11 @@ void App::pumpTasks() {
                 });
             }
             deviceError_.clear();
+            if (std::none_of(devices_.begin(), devices_.end(), [&](const DiscoveredDevice& device) {
+                    return device.did == diagnosticsView_.selectedDid;
+                })) {
+                diagnosticsView_.selectedDid = devices_.empty() ? std::string{} : devices_.front().did;
+            }
             XV_INFO("found {} camera(s) on the account", devices_.size());
         } else {
             deviceError_ = responseError(*result);
@@ -1379,6 +1423,9 @@ void App::setCaptcha(const std::string& base64Png) {
 }
 
 void App::signOut() {
+    cameraDiagnostics_.cancel();
+    diagnosticResumeCameras_.clear();
+    diagnosticsView_.selectedDid.clear();
     closePlayback(false);
     stopStreams();
 
@@ -1401,7 +1448,7 @@ void App::signOut() {
 // --- Devices and streams ----------------------------------------------------
 
 void App::refreshDevices() {
-    if (deviceTask_.busy()) {
+    if (!signedIn_ || deviceTask_.busy()) {
         return;
     }
 
@@ -1409,8 +1456,96 @@ void App::refreshDevices() {
 
     const std::string userId = config_.account.userId;
     deviceTask_.start([userId] {
-        return Bridge::instance().call("device.list", Json{{"user_id", userId}});
+        Json response = Bridge::instance().call("device.list", Json{{"user_id", userId}});
+        response["_requested_user_id"] = userId;
+        return response;
     });
+}
+
+void App::openCameraDiagnostics() {
+    diagnosticsView_.open = true;
+    diagnosticsView_.error.clear();
+    if (!cameraDiagnostics_.busy() && selected_ >= 0 && selected_ < static_cast<int>(streams_.size())) {
+        diagnosticsView_.selectedDid = streams_[static_cast<size_t>(selected_)]->config.did;
+    }
+    refreshDevices();
+}
+
+std::string App::diagnosticsBlockedReason(const std::string& did) const {
+    if (!signedIn_) {
+        return "Sign in to choose an account camera.";
+    }
+    if (cameraDiagnostics_.busy()) {
+        return "A diagnostics collection is already running.";
+    }
+    if (screen_ == Screen::SdCard) {
+        return "Close SD playback before collecting diagnostics.";
+    }
+    for (const auto& stream : streams_) {
+        if (stream->config.did == did && (recording(*stream) || globallyRecording(*stream))) {
+            return "Stop recording this camera before collecting diagnostics.";
+        }
+    }
+    return {};
+}
+
+void App::collectCameraDiagnostics(const DiscoveredDevice& device) {
+    diagnosticsView_.error = diagnosticsBlockedReason(device.did);
+    if (!diagnosticsView_.error.empty()) {
+        return;
+    }
+    if (std::none_of(devices_.begin(), devices_.end(), [&](const DiscoveredDevice& available) {
+            return available.did == device.did;
+        })) {
+        diagnosticsView_.error = "Refresh the camera list and choose a camera from this account.";
+        return;
+    }
+    CameraDiagnostics::Options options;
+    options.deviceId = device.did;
+    options.outputDirectory = AppConfig::directory() / L"Diagnostics";
+    options.includeStorage = diagnosticsView_.includeStorage;
+    options.includeFirmwareInfo = diagnosticsView_.includeFirmwareInfo;
+    options.includeAppLog = diagnosticsView_.includeAppLog;
+    config_.save();
+    diagnosticResumeCameras_.clear();
+    for (auto& stream : streams_) {
+        if (stream->config.did == device.did && stream->worker && stream->worker->running()) {
+            diagnosticResumeCameras_.push_back(stream->config);
+            stream->worker->mute();
+            stream->worker->stop();
+            stream->texture.reset();
+        }
+    }
+    diagnosticCameraDid_ = device.did;
+    if (!cameraDiagnostics_.start(options)) {
+        for (auto& stream : streams_) {
+            if (std::any_of(diagnosticResumeCameras_.begin(), diagnosticResumeCameras_.end(),
+                    [&](const CameraConfig& camera) {
+                        return camera.did == stream->config.did && camera.channel == stream->config.channel;
+                    })) {
+                restartStream(*stream);
+            }
+        }
+        diagnosticResumeCameras_.clear();
+        diagnosticCameraDid_.clear();
+    }
+}
+
+void App::openDiagnosticsFolder() const {
+    const auto& directory = cameraDiagnostics_.status().directory;
+    if (!directory.empty()) {
+        ::ShellExecuteW(window_, L"open", directory.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    }
+}
+
+void App::openDiagnosticsReport() const {
+    const auto report = cameraDiagnostics_.status().directory / L"owner-report.txt";
+    ::ShellExecuteW(window_, L"open", report.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
+void App::showDiagnosticsHelp() {
+    showHelpWindow_ = true;
+    helpTab_ = kHelpTabDiagnostics;
 }
 
 void App::addCamera(const DiscoveredDevice& device, const std::string& channel) {
@@ -1437,7 +1572,11 @@ void App::addCamera(const DiscoveredDevice& device, const std::string& channel) 
     stream->worker = std::make_unique<StreamWorker>();
     stream->miot = std::make_unique<MiotClient>(config_.account, camera.did, camera.model);
     if (camera.enabled) {
-        stream->worker->start(gpu_, camera, config_.account);
+        if (cameraDiagnostics_.busy() && camera.did == diagnosticCameraDid_) {
+            diagnosticResumeCameras_.push_back(camera);
+        } else {
+            stream->worker->start(gpu_, camera, config_.account);
+        }
     }
     attachGlobalRecorder(*stream);
     streams_.push_back(std::move(stream));
@@ -1506,6 +1645,9 @@ void App::moveCamera(size_t from, size_t to) {
 }
 
 void App::startStreams() {
+    if (cameraDiagnostics_.busy()) {
+        return;
+    }
     // Rebuild the worker list from configuration so this doubles as the
     // "apply changes" path.
     stopStreams(true);
@@ -1529,6 +1671,9 @@ void App::startStreams() {
 }
 
 void App::stopStreams(bool preserveGlobalRecording) {
+    if (cameraDiagnostics_.busy()) {
+        diagnosticResumeCameras_.clear();
+    }
     if (!preserveGlobalRecording) {
         stopGlobalRecording();
     }
@@ -1542,6 +1687,9 @@ void App::stopStreams(bool preserveGlobalRecording) {
 }
 
 void App::restartStream(CameraStream& stream) {
+    if (cameraDiagnostics_.busy() && stream.config.did == diagnosticCameraDid_) {
+        return;
+    }
     if (stream.worker) {
         stream.worker->stop();
     }
@@ -1836,7 +1984,7 @@ void App::openSdPlayback(size_t cameraIndex) {
 
     const CameraConfig camera = config_.cameras[cameraIndex];
 
-    if (!sdPlaybackSupported(camera)) {
+    if (!sdPlaybackSupported(camera) || cameraDiagnostics_.busy()) {
         return;
     }
 
