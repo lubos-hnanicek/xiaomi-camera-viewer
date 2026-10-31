@@ -80,6 +80,7 @@ bool CameraDiagnostics::start(const Options& options) {
         }
         runDirectory_ = std::filesystem::absolute(options.outputDirectory) / name.data();
         std::filesystem::create_directories(runDirectory_);
+        runDirectory_ = std::filesystem::canonical(runDirectory_);
         resultPath_ = runDirectory_ / L"app-result.json";
         cancelPath_ = runDirectory_ / L"cancel.request";
 

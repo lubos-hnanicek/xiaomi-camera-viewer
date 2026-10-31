@@ -30,7 +30,17 @@ int wmain(int argc, wchar_t** argv) {
     xv::CameraDiagnostics diagnostics;
     xv::CameraDiagnostics::Options options;
     options.script = std::filesystem::absolute(argv[1]);
-    options.outputDirectory = std::filesystem::temp_directory_path() / L"XiaomiViewer diagnostics \u017E tests";
+    const auto tempDirectory = std::filesystem::temp_directory_path() / L"XiaomiViewer long diagnostics test directory";
+    std::filesystem::create_directories(tempDirectory);
+    std::wstring shortDirectory(32768, L'\0');
+    const DWORD length = ::GetShortPathNameW(tempDirectory.c_str(), shortDirectory.data(),
+                                            static_cast<DWORD>(shortDirectory.size()));
+    if (length == 0 || length >= shortDirectory.size()) {
+        std::cerr << "Could not resolve the short temporary directory path\n";
+        return 1;
+    }
+    shortDirectory.resize(length);
+    options.outputDirectory = std::filesystem::path(shortDirectory) / L"XiaomiViewer diagnostics \u017E tests";
     options.selfTest = true;
     options.includeStorage = true;
     for (int attempt = 0; attempt < 3; ++attempt) {
@@ -42,6 +52,19 @@ int wmain(int argc, wchar_t** argv) {
             !std::filesystem::is_regular_file(diagnostics.status().archive) ||
             !std::filesystem::is_regular_file(diagnostics.status().directory / "owner-report.txt")) {
             std::cerr << "Collector result contract failed: " << diagnostics.status().error << '\n';
+            std::filesystem::path latestResult;
+            for (const auto& run : std::filesystem::directory_iterator(options.outputDirectory)) {
+                const auto result = run.path() / "app-result.json";
+                if (std::filesystem::is_regular_file(result) &&
+                    (latestResult.empty() || std::filesystem::last_write_time(result) >
+                                             std::filesystem::last_write_time(latestResult))) {
+                    latestResult = result;
+                }
+            }
+            if (!latestResult.empty()) {
+                std::ifstream result(latestResult, std::ios::binary);
+                std::cerr << "Collector status: " << result.rdbuf() << '\n';
+            }
             return 1;
         }
         std::ifstream input(diagnostics.status().directory / "communication.json");
