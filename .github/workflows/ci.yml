@@ -122,7 +122,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: XiaomiViewer-${{ steps.version.outputs.version }}-win-${{ matrix.architecture }}-unsigned
-          path: dist/XiaomiViewer-${{ steps.version.outputs.version }}-win-${{ matrix.architecture }}*.zip
+          path: dist/XiaomiViewer-win-${{ matrix.architecture }}*.zip
           if-no-files-found: error
           # Short, because this is a build to try rather than a build to keep,
           # and every push would otherwise leave 50 MB behind for three months.

@@ -59,9 +59,7 @@ function Write-Step($Message) {
 }
 
 # Zips files under one named directory rather than at the root, so unpacking
-# cannot spill them into whatever directory the archive was opened in, and so
-# that unpacking the symbols over the application puts the .pdb beside the
-# executable, which is where a debugger goes looking for it.
+# cannot spill them into whatever directory the archive was opened in.
 function Write-Archive($Path, $Root, $Base, $Files) {
     if (Test-Path $Path) { Remove-Item $Path -Force }
 
@@ -142,9 +140,10 @@ if ($Archive) {
     }
 
     $version = & (Join-Path $PSScriptRoot 'get-version.ps1')
-    $root = "XiaomiViewer-$version"
+    $name = "XiaomiViewer-win-$Architecture"
+    $root = "XiaomiViewer-$version-win-$Architecture"
 
-    Write-Archive -Path (Join-Path $RepoRoot "dist\$root-win-$Architecture.zip") -Root $root `
+    Write-Archive -Path (Join-Path $RepoRoot "dist\$name.zip") -Root $root `
         -Base $StageDir -Files (Get-ChildItem -File -Recurse $StageDir)
 
     # Symbols go in their own archive. The .pdb compresses to more than a quarter
@@ -153,7 +152,7 @@ if ($Archive) {
     # kept and published rather than simply dropped.
     $symbols = Get-Item (Join-Path $OutputDir 'XiaomiViewer.pdb') -ErrorAction SilentlyContinue
     if ($symbols) {
-        Write-Archive -Path (Join-Path $RepoRoot "dist\$root-win-$Architecture-symbols.zip") -Root $root `
+        Write-Archive -Path (Join-Path $RepoRoot "dist\$name-symbols.zip") -Root "$root-symbols" `
             -Base $symbols.DirectoryName -Files @($symbols)
     } elseif ($RequireSymbols) {
         throw "No XiaomiViewer.pdb in $OutputDir. Build the RelWithDebInfo configuration for a release."

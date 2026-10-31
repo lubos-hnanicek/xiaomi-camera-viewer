@@ -84,7 +84,7 @@ jobs:
           Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$version" -Encoding utf8
           Write-Host "project version $version"
 
-      # The zip names, the version resource and the release title all come from
+      # The archive folders, version resource and release title all come from
       # CMakeLists.txt, so a tag that disagrees with it could publish a release
       # full of files that identify themselves as another version.
       - name: Check the tag matches the project version
@@ -134,7 +134,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: XiaomiViewer-${{ steps.version.outputs.version }}-win-${{ matrix.architecture }}
-          path: dist/XiaomiViewer-${{ steps.version.outputs.version }}-win-${{ matrix.architecture }}*.zip
+          path: dist/XiaomiViewer-win-${{ matrix.architecture }}*.zip
           if-no-files-found: error
 
   # One publisher job owns the release so the two matrix legs cannot race while
@@ -159,25 +159,33 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Add stable application download names
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          Copy-Item "dist/XiaomiViewer-$env:VERSION-win-x64.zip" 'dist/XiaomiViewer-win-x64.zip'
-          Copy-Item "dist/XiaomiViewer-$env:VERSION-win-arm64.zip" 'dist/XiaomiViewer-win-arm64.zip'
-
       - name: Create the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          $assets = @(
+            'XiaomiViewer-win-x64.zip',
+            'XiaomiViewer-win-arm64.zip',
+            'XiaomiViewer-win-x64-symbols.zip',
+            'XiaomiViewer-win-arm64-symbols.zip'
+          )
+          foreach ($asset in $assets) {
+            if (-not (Test-Path -LiteralPath "dist/$asset")) { throw "Missing release archive $asset" }
+          }
+          $notes = "## Downloads`n`n" + (($assets | ForEach-Object {
+            "- [$_]($env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/releases/download/$env:TAG/$_)"
+          }) -join "`n")
           gh release create $env:TAG `
             --title "Xiaomi Camera Viewer $env:VERSION" `
             --generate-notes `
-            "dist/XiaomiViewer-$env:VERSION-win-x64.zip" `
-            "dist/XiaomiViewer-$env:VERSION-win-x64-symbols.zip" `
-            "dist/XiaomiViewer-$env:VERSION-win-arm64.zip" `
-            "dist/XiaomiViewer-$env:VERSION-win-arm64-symbols.zip" `
-            'dist/XiaomiViewer-win-x64.zip' `
-            'dist/XiaomiViewer-win-arm64.zip'
+            --notes $notes `
+            --draft
+          if ($LASTEXITCODE -ne 0) { throw 'Could not create the draft release' }
+          foreach ($asset in $assets) {
+            gh release upload $env:TAG "dist/$asset"
+            if ($LASTEXITCODE -ne 0) { throw "Could not upload $asset" }
+          }
+          gh release edit $env:TAG --draft=false
+          if ($LASTEXITCODE -ne 0) { throw 'Could not publish the release' }
