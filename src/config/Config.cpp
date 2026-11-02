@@ -150,6 +150,26 @@ bool isCw300(const std::string& model) {
     return model == "mxiang.camera.moc001" || model == "mxiang.camera.moc006";
 }
 
+bool isC400(const std::string& model) {
+    return model == "chuangmi.camera.039a04";
+}
+
+bool supportsSdPlayback(const std::string& model) {
+    return model.find("hlc8a") != std::string::npos ||
+           model.find("500dh") != std::string::npos ||
+           model.find("cw501d") != std::string::npos ||
+           model == "mxiang.camera.moc006" ||
+           isC400(model);
+}
+
+bool isC500(const std::string& model) {
+    return model == "chuangmi.camera.061a03" || model == "mxiang.camera.c500cn" ||
+           model == "mxiang.camera.c500en" ||
+           model == "mxiang.camera.c500s" || model == "mxiang.camera.c500du" ||
+           model == "mxiang.camera.c500ch" || model == "mxiang.camera.c500os" ||
+           model == "mxiang.camera.c500bt" || model == "xiaomi.camera.c500a";
+}
+
 bool isCw700s(const std::string& model) {
     return model == "isa.camera.700sa";
 }
@@ -165,6 +185,8 @@ bool hasMotor(const std::string& model) {
             model.find("cw501d") != std::string::npos ||
            model.find(".hlmax") != std::string::npos ||
            isCw300(model) ||
+           isC400(model) ||
+           isC500(model) ||
            isCw700s(model);
 }
 

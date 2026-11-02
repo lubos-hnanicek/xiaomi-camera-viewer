@@ -61,6 +61,15 @@ struct CameraConfig {
 // property numbers, but share the same single-lens MISS/CS2 media path.
 [[nodiscard]] bool isCw300(const std::string& model);
 
+// Current indoor C400 model (chuangmi.camera.039a04).
+[[nodiscard]] bool isC400(const std::string& model);
+
+// Models with a verified SD-card catalogue and playback path.
+[[nodiscard]] bool supportsSdPlayback(const std::string& model);
+
+// Published C500 MIoT model aliases, which share motorised pan and tilt.
+[[nodiscard]] bool isC500(const std::string& model);
+
 // CW700S has wide and telephoto sensors, but presents them as one hybrid-zoom
 // view rather than two independently selectable tiles.
 [[nodiscard]] bool isCw700s(const std::string& model);

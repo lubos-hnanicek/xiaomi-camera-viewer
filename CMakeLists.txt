@@ -309,4 +309,22 @@ if(BUILD_TESTING)
         target_compile_options(camera_channel_tests PRIVATE /W4 /permissive- /EHsc /utf-8)
     endif()
     add_test(NAME camera_channel COMMAND camera_channel_tests)
+
+    add_executable(miot_model_tests
+        tests/MiotModelTests.cpp
+        src/cloud/Miot.cpp
+        src/bridge/Bridge.cpp
+        src/config/Config.cpp
+        src/app/Log.cpp
+        src/util/Encoding.cpp)
+    target_include_directories(miot_model_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    target_compile_definitions(miot_model_tests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_link_libraries(miot_model_tests PRIVATE nlohmann_json crypt32 shell32)
+    if(MSVC)
+        target_compile_options(miot_model_tests PRIVATE /W4 /permissive- /EHsc /utf-8)
+    endif()
+    add_test(NAME miot_models COMMAND miot_model_tests)
 endif()

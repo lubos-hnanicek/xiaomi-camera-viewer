@@ -127,9 +127,11 @@ void drawStorageSummary(const CameraStream& stream) {
         return;
     }
 
-    const auto totalBytes = static_cast<unsigned long long>(total->asInt()) * 1024ull;
+    const auto totalUnit = totalProperty->unit == MiotUnit::Bytes ? 1ull : 1024ull;
+    const auto freeUnit = freeProperty->unit == MiotUnit::Bytes ? 1ull : 1024ull;
+    const auto totalBytes = static_cast<unsigned long long>(total->asInt()) * totalUnit;
     const auto freeBytes = freeSpace.has_value() && freeSpace->present
-                               ? static_cast<unsigned long long>(freeSpace->asInt()) * 1024ull
+                               ? static_cast<unsigned long long>(freeSpace->asInt()) * freeUnit
                                : 0ull;
     const float used = totalBytes > 0
                            ? 1.0f - static_cast<float>(freeBytes) / static_cast<float>(totalBytes)

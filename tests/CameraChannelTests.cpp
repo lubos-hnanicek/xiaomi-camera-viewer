@@ -13,13 +13,29 @@
 
 int main() {
     using xv::isDualLens;
+    using xv::hasMotor;
+    using xv::isC500;
     using xv::sdRecordingChannel;
+    using xv::supportsSdPlayback;
 
     // Single-lens models have one channel whatever the tile says.
     assert(sdRecordingChannel("isa.camera.hlc8a", "") == 0);
     assert(sdRecordingChannel("isa.camera.hlc8a", "0") == 0);
     assert(sdRecordingChannel("isa.camera.hlc8a", "1") == 0);
     assert(sdRecordingChannel("mxiang.camera.moc001", "1") == 0);
+
+    // The indoor C400 uses a different cloud model id from the older CW400,
+    // but remains a motorized single-lens camera.
+    assert(hasMotor("chuangmi.camera.039a04"));
+    assert(!isDualLens("chuangmi.camera.039a04"));
+    assert(sdRecordingChannel("chuangmi.camera.039a04", "1") == 0);
+    assert(supportsSdPlayback("chuangmi.camera.039a04"));
+    assert(supportsSdPlayback("isa.camera.hlc8a"));
+    assert(!supportsSdPlayback("xiaomi.camera.unverified"));
+
+    assert(isC500("mxiang.camera.c500en"));
+    assert(hasMotor("mxiang.camera.c500en"));
+    assert(!hasMotor("xiaomi.camera.unverified"));
 
     // The CW500 records its two lenses as 0 and 10. Channel 1 is a slot the
     // firmware never allocates.

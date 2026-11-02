@@ -18,6 +18,11 @@ enum class MiotType {
     String,
 };
 
+enum class MiotUnit {
+    Kibibytes,
+    Bytes,
+};
+
 struct MiotEnumOption {
     int value;
     const char* label;
@@ -37,6 +42,7 @@ struct MiotProperty {
     int step = 1;
     std::vector<MiotEnumOption> options;
     const char* help = nullptr;
+    MiotUnit unit = MiotUnit::Kibibytes;
 };
 
 // A callable operation, as opposed to a settable value.
@@ -67,8 +73,8 @@ struct MiotValue {
 
 // Describes the properties and actions worth exposing for a camera model.
 // Known models whose MIoT ids overlap with different meanings get a dedicated
-// table. Unknown models retain the original CW500-derived table and hide
-// properties they reject.
+// table. Unknown models have no writable MIoT controls until their schema is
+// identified.
 const std::vector<MiotProperty>& cameraProperties(const std::string& model);
 const std::vector<MiotAction>& cameraActions(const std::string& model);
 

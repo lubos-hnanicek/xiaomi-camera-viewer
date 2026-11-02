@@ -1961,20 +1961,7 @@ void App::leavePlayerScreens() {
 }
 
 bool App::sdPlaybackSupported(const CameraConfig& camera) {
-    // The catalogue and the playback command were recovered from the firmware
-    // of these boards, and the request shapes are not guesses that would
-    // degrade gracefully elsewhere: a model that reads them differently answers
-    // nothing at all. Better to say a camera is not supported than to offer a
-    // screen that will sit empty.
-    //
-    // Both lenses qualify on the dual-lens models: each keeps its own
-    // catalogue on the card, the second under storage channel 10.
-    // See sdRecordingChannel.
-    // moc006 (CW300 global/EU) verificada contra hardware con probe-sdcard.ps1: catálogo y reproducción responden igual que en la CW400; moc001 (China) sigue sin probar
-    return camera.model.find("hlc8a") != std::string::npos ||
-           camera.model.find("500dh") != std::string::npos ||
-            camera.model.find("cw501d") != std::string::npos ||
-           camera.model == "mxiang.camera.moc006";
+    return supportsSdPlayback(camera.model);
 }
 
 void App::openSdPlayback(size_t cameraIndex) {

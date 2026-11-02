@@ -5,9 +5,9 @@
 namespace xv {
 namespace {
 
-// Property table transcribed from the isa.camera.hlmax (CW500 dual) MIoT
-// specification. Service 6 is Xiaomi's grab-bag of vendor extensions, which is
-// where the fill light and siren live.
+// Property table transcribed from the CW400/CW500 MIoT layouts. Service 6 is
+// Xiaomi's grab-bag of vendor extensions, which is where the fill light and
+// siren live.
 const std::vector<MiotProperty> kDefaultProperties = {
     // --- Image ---
     {"on", "Camera on", "Image", 2, 1, MiotType::Bool, true},
@@ -84,6 +84,224 @@ const std::vector<MiotAction> kDefaultActions = {
      "Erases every recording on the card. This cannot be undone."},
     {"sd-eject", "Eject SD card", "Maintenance", 4, 2, false},
 };
+
+const std::vector<MiotProperty> kC400Properties = {
+    {"on", "Camera on", "Image", 2, 1, MiotType::Bool, true},
+    {"image-rollover", "Flip image", "Image", 2, 2, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Normal"}, {180, "Upside down"}}},
+    {"night-shot", "Night vision", "Image", 2, 3, MiotType::Enum, true, 0, 0, 1,
+     {{0, "On"}, {1, "Off"}, {2, "Auto"}}},
+    {"glimmer-full-color", "Low-light color", "Image", 2, 6, MiotType::Bool, true},
+    {"recording-mode", "Recording mode", "Recording", 2, 7, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Continuous"}, {1, "On motion"}, {2, "Off"}}},
+    {"motion-tracking", "Track movement", "Tracking", 2, 8, MiotType::Bool, true},
+    {"local-storage", "Local storage", "Recording", 2, 9, MiotType::Bool, true},
+    {"indicator-light", "Status LED", "Lights and sound", 3, 1, MiotType::Bool, true},
+    {"sd-total", "SD total (bytes)", "Recording", 4, 2, MiotType::Int, false, 0, 0, 1, {}, nullptr, MiotUnit::Bytes},
+    {"sd-free", "SD free (bytes)", "Recording", 4, 3, MiotType::Int, false, 0, 0, 1, {}, nullptr, MiotUnit::Bytes},
+    {"sd-used", "SD used (bytes)", "Recording", 4, 4, MiotType::Int, false, 0, 0, 1, {}, nullptr, MiotUnit::Bytes},
+    {"motion-detection", "Motion detection", "Detection", 5, 1, MiotType::Bool, true},
+    {"alarm-interval", "Alarm interval", "Detection", 5, 2, MiotType::Int, true, 1, 30},
+    {"detection-sensitivity", "Sensitivity", "Detection", 5, 3, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Low"}, {1, "High"}}},
+    {"motion-detection-start-time", "Active from", "Detection", 5, 4, MiotType::String, true},
+    {"motion-detection-end-time", "Active until", "Detection", 5, 5, MiotType::String, true},
+    {"baby-wake-switch", "Baby wake detection", "Detection", 7, 3, MiotType::Bool, true},
+    {"babycry-switch", "Baby crying detection", "Detection", 7, 5, MiotType::Bool, true},
+};
+
+const std::vector<MiotAction> kC400Actions = {
+    {"sd-format", "Format SD card", "Maintenance", 4, 1, true,
+     "Erases every recording on the card. This cannot be undone."},
+    {"sd-eject", "Eject SD card", "Maintenance", 4, 2, false},
+};
+
+const std::vector<MiotProperty> kC500ProProperties = {
+    {"on", "Camera on", "Image", 2, 1, MiotType::Bool, true},
+    {"image-rollover", "Flip image", "Image", 2, 2, MiotType::Enum, true, 0, 180, 180,
+     {{0, "Normal"}, {180, "Upside down"}}},
+    {"night-shot", "Night vision", "Image", 2, 3, MiotType::Enum, true, 0, 0, 1,
+     {{0, "On"}, {1, "Off"}, {2, "Auto"}}},
+    {"time-watermark", "Timestamp overlay", "Image", 2, 4, MiotType::Bool, true},
+    {"glimmer-full-color", "Low-light color", "Image", 2, 6, MiotType::Bool, true},
+    {"recording-mode", "Recording mode", "Recording", 2, 7, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Off"}, {1, "On motion"}, {2, "Continuous"}}},
+    {"human-tracking", "Track people", "Tracking", 2, 11, MiotType::Bool, true},
+    {"hdr-mode", "HDR", "Image", 2, 13, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Off"}, {1, "On"}, {2, "Auto"}}},
+    {"image-distortion-correction", "Distortion correction", "Image", 2, 14, MiotType::Bool, true},
+    {"indicator-light", "Status LED", "Lights and sound", 3, 1, MiotType::Bool, true},
+    {"sd-status", "SD card", "Recording", 4, 1, MiotType::Enum, false, 0, 0, 1,
+     {{0, "Ready"}, {1, "Not inserted"}, {2, "Full"}, {3, "Damaged"},
+      {4, "Formatting"}, {5, "Ejected"}, {6, "Repairing"}, {7, "Ejecting"},
+      {8, "Not initialised"}, {9, "Not enough space"}, {10, "File error"},
+      {11, "Incompatible"}}},
+    {"sd-total", "SD total (KB)", "Recording", 4, 2, MiotType::Int, false},
+    {"sd-free", "SD free (KB)", "Recording", 4, 3, MiotType::Int, false},
+    {"sd-used", "SD used (KB)", "Recording", 4, 4, MiotType::Int, false},
+    {"remaining-recording-duration", "Remaining recording time (minutes)", "Recording", 4, 6,
+     MiotType::Int, false},
+    {"motion-detection", "Motion detection", "Detection", 5, 1, MiotType::Bool, true},
+    {"alarm-interval", "Alarm interval", "Detection", 5, 2, MiotType::Int, true, 1, 30},
+    {"detection-sensitivity", "Sensitivity", "Detection", 5, 3, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Low"}, {2, "High"}}},
+    {"motion-detection-start-time", "Active from", "Detection", 5, 4, MiotType::String, true},
+    {"motion-detection-end-time", "Active until", "Detection", 5, 5, MiotType::String, true},
+    {"babycry-detection", "Baby crying detection", "Detection", 8, 10, MiotType::Bool, true},
+    {"sound-detection", "Sound detection", "Detection", 8, 11, MiotType::Bool, true},
+    {"pet-detection", "Pet detection", "Detection", 8, 12, MiotType::Bool, true},
+    {"fav-area", "Saved positions", "Pan and tilt", 10, 1, MiotType::String, true},
+    {"active-fav-area", "Active preset", "Pan and tilt", 10, 2, MiotType::Int, true, 0, 64, 1,
+     {}, "Writing a preset number moves the lens to that saved position."},
+    {"cruise-switch", "Cruise", "Pan and tilt", 11, 1, MiotType::Bool, true},
+    {"cruise-cycle", "Cruise cycle (minutes)", "Pan and tilt", 11, 2, MiotType::Int, true, 0, 1440},
+    {"cruise-start-time", "Cruise starts", "Pan and tilt", 11, 3, MiotType::String, true},
+    {"cruise-end-time", "Cruise ends", "Pan and tilt", 11, 4, MiotType::String, true},
+    {"cruise-repetition", "Cruise repetition", "Pan and tilt", 11, 5, MiotType::String, true},
+    {"cruise-mode", "Cruise mode", "Pan and tilt", 11, 6, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Panoramic"}, {1, "Fixed point"}}},
+    {"cruise-position", "Cruise positions", "Pan and tilt", 11, 7, MiotType::String, true},
+    {"smart-care", "Smart care", "Detection", 13, 1, MiotType::Bool, true},
+    {"smart-care-area", "Smart care area", "Detection", 13, 2, MiotType::String, true},
+    {"smart-care-mode", "Smart care mode", "Detection", 13, 3, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Key areas"}, {2, "No movement"}}},
+    {"smart-care-time-period", "Smart care active period", "Detection", 13, 4,
+     MiotType::String, true},
+};
+
+const std::vector<MiotAction> kC500ProActions = {
+    {"sd-format", "Format SD card", "Maintenance", 4, 1, true,
+     "Erases every recording on the card. This cannot be undone."},
+    {"sd-eject", "Eject SD card", "Maintenance", 4, 2, false},
+};
+
+// These catalogued C500 revisions share the same service and property ids.
+const std::vector<MiotProperty> kMxiangC500Properties = {
+    {"on", "Camera on", "Image", 2, 1, MiotType::Bool, true},
+    {"night-shot", "Night vision", "Image", 2, 3, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Off"}, {1, "On"}, {2, "Auto"}}},
+    {"image-rollover", "Flip image", "Image", 2, 4, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Normal"}, {90, "90 degrees"}, {180, "Upside down"}, {270, "270 degrees"}}},
+    {"time-watermark", "Timestamp overlay", "Image", 2, 5, MiotType::Bool, true},
+    {"glimmer-full-color", "Low-light color", "Image", 2, 7, MiotType::Bool, true},
+    {"motion-tracking", "Track movement", "Tracking", 2, 8, MiotType::Bool, true},
+    {"human-tracking", "Track people", "Tracking", 2, 9, MiotType::Bool, true},
+    {"recording-mode", "Recording mode", "Recording", 2, 11, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Off"}, {1, "On motion"}, {2, "Continuous"}}},
+    {"local-storage", "Local storage", "Recording", 2, 12, MiotType::Bool, true},
+    {"hdr-mode", "HDR", "Image", 2, 13, MiotType::Bool, true},
+    {"image-distortion-correction", "Distortion correction", "Image", 2, 14, MiotType::Bool, true},
+    {"auto-sound-light-warning", "Automatic sound and light warning", "Lights and sound", 2, 15, MiotType::Bool, true},
+    {"hl-audible-alarm", "Siren and warning light", "Lights and sound", 2, 16, MiotType::Bool, true},
+    {"sd-total", "SD total (KB)", "Recording", 3, 2, MiotType::Int, false},
+    {"sd-free", "SD free (KB)", "Recording", 3, 3, MiotType::Int, false},
+    {"sd-used", "SD used (KB)", "Recording", 3, 4, MiotType::Int, false},
+    {"indicator-light", "Status LED", "Lights and sound", 4, 1, MiotType::Bool, true},
+    {"motion-detection", "Motion detection", "Detection", 5, 1, MiotType::Bool, true},
+    {"alarm-interval", "Alarm interval", "Detection", 5, 2, MiotType::Int, true, 1, 30},
+    {"detection-sensitivity", "Sensitivity", "Detection", 5, 3, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Low"}, {1, "Medium"}, {2, "High"}}},
+    {"motion-detection-start-time", "Active from", "Detection", 5, 4, MiotType::String, true},
+    {"motion-detection-end-time", "Active until", "Detection", 5, 5, MiotType::String, true},
+    {"pet-detection", "Pet detection", "Detection", 8, 3, MiotType::Bool, true},
+    {"human-detection", "Human detection", "Detection", 8, 6, MiotType::Bool, true},
+    {"move-detection", "Frame change detection", "Detection", 8, 7, MiotType::Bool, true},
+    {"babycry-detection", "Baby crying detection", "Detection", 8, 8, MiotType::Bool, true},
+    {"pet-tracking", "Track pets", "Tracking", 8, 21, MiotType::Bool, true},
+};
+
+const std::vector<MiotProperty> kMxiangC500CnEnProperties = {
+    {"on", "Camera on", "Image", 2, 1, MiotType::Bool, true},
+    {"image-rollover", "Flip image", "Image", 2, 2, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Normal"}, {90, "90 degrees"}, {180, "Upside down"}, {270, "270 degrees"}}},
+    {"night-shot", "Night vision", "Image", 2, 3, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Off"}, {1, "On"}, {2, "Auto"}}},
+    {"time-watermark", "Timestamp overlay", "Image", 2, 4, MiotType::Bool, true},
+    {"glimmer-full-color", "Low-light color", "Image", 2, 6, MiotType::Bool, true},
+    {"recording-mode", "Recording mode", "Recording", 2, 7, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Off"}, {1, "On motion"}, {2, "Continuous"}}},
+    {"motion-tracking", "Track movement", "Tracking", 2, 8, MiotType::Bool, true},
+    {"local-storage", "Local storage", "Recording", 2, 9, MiotType::Bool, true},
+    {"human-tracking", "Track people", "Tracking", 2, 11, MiotType::Bool, true},
+    {"image-distortion-correction", "Distortion correction", "Image", 2, 14, MiotType::Bool, true},
+    {"auto-sound-light-warning", "Automatic sound and light warning", "Lights and sound", 2, 15, MiotType::Bool, true},
+    {"hl-audible-alarm", "Siren and warning light", "Lights and sound", 2, 16, MiotType::Bool, true},
+    {"sd-total", "SD total (KB)", "Recording", 4, 2, MiotType::Int, false},
+    {"sd-free", "SD free (KB)", "Recording", 4, 3, MiotType::Int, false},
+    {"sd-used", "SD used (KB)", "Recording", 4, 4, MiotType::Int, false},
+    {"indicator-light", "Status LED", "Lights and sound", 3, 1, MiotType::Bool, true},
+    {"motion-detection", "Motion detection", "Detection", 5, 1, MiotType::Bool, true},
+    {"alarm-interval", "Alarm interval", "Detection", 5, 2, MiotType::Int, true, 1, 30},
+    {"detection-sensitivity", "Sensitivity", "Detection", 5, 3, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Low"}, {1, "Medium"}, {2, "High"}}},
+    {"motion-detection-start-time", "Active from", "Detection", 5, 4, MiotType::String, true},
+    {"motion-detection-end-time", "Active until", "Detection", 5, 5, MiotType::String, true},
+    {"pet-detection", "Pet detection", "Detection", 8, 5, MiotType::Bool, true},
+    {"human-detection", "Human detection", "Detection", 8, 8, MiotType::Bool, true},
+    {"move-detection", "Frame change detection", "Detection", 8, 9, MiotType::Bool, true},
+    {"babycry-detection", "Baby crying detection", "Detection", 8, 10, MiotType::Bool, true},
+    {"pet-tracking", "Track pets", "Tracking", 8, 22, MiotType::Bool, true},
+    {"human-close-up", "Human close-up", "Tracking", 8, 23, MiotType::Bool, true},
+    {"warning-light-switch", "Warning light", "Lights and sound", 18, 3, MiotType::Bool, true},
+    {"warning-audio-switch", "Warning siren", "Lights and sound", 18, 4, MiotType::Bool, true},
+};
+
+const std::vector<MiotProperty> kXiaomiC500aProperties = {
+    {"on", "Camera on", "Image", 2, 1, MiotType::Bool, true},
+    {"night-shot", "Night vision", "Image", 2, 3, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Off"}, {1, "On"}, {2, "Auto"}}},
+    {"image-rollover", "Flip image", "Image", 2, 4, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Normal"}, {90, "90 degrees"}, {180, "Upside down"}, {270, "270 degrees"}}},
+    {"time-watermark", "Timestamp overlay", "Image", 2, 5, MiotType::Bool, true},
+    {"glimmer-full-color", "Low-light color", "Image", 2, 7, MiotType::Bool, true},
+    {"human-tracking", "Track people", "Tracking", 2, 9, MiotType::Bool, true},
+    {"recording-mode", "Recording mode", "Recording", 2, 11, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Continuous"}, {1, "On motion"}, {2, "Off"}}},
+    {"sd-total", "SD total (KB)", "Recording", 3, 2, MiotType::Int, false},
+    {"sd-free", "SD free (KB)", "Recording", 3, 3, MiotType::Int, false},
+    {"sd-used", "SD used (KB)", "Recording", 3, 4, MiotType::Int, false},
+    {"indicator-light", "Status LED", "Lights and sound", 4, 1, MiotType::Bool, true},
+    {"motion-detection", "Motion detection", "Detection", 5, 1, MiotType::Bool, true},
+    {"alarm-interval", "Alarm interval", "Detection", 5, 2, MiotType::Int, true, 1, 30},
+    {"detection-sensitivity", "Sensitivity", "Detection", 5, 3, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Low"}, {1, "Medium"}, {2, "High"}}},
+    {"motion-detection-start-time", "Active from", "Detection", 5, 4, MiotType::String, true},
+    {"motion-detection-end-time", "Active until", "Detection", 5, 5, MiotType::String, true},
+    {"pet-detection", "Pet detection", "Detection", 8, 3, MiotType::Bool, true},
+    {"human-detection", "Human detection", "Detection", 8, 6, MiotType::Bool, true},
+    {"move-detection", "Frame change detection", "Detection", 8, 7, MiotType::Bool, true},
+    {"pet-tracking", "Track pets", "Tracking", 8, 22, MiotType::Bool, true},
+    {"human-close-up", "Human close-up", "Tracking", 8, 23, MiotType::Bool, true},
+    {"ai-detection-sensitivity", "AI sensitivity", "Detection", 8, 28, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Low"}, {1, "Medium"}, {2, "High"}}},
+};
+
+const std::vector<MiotAction> kMxiangC500Actions = {
+    {"ptz-calibrate", "Calibrate pan and tilt", "Pan and tilt", 2, 1, false,
+     "Re-homes the motor. The lens will sweep its full range."},
+    {"restart-device", "Restart camera", "Maintenance", 2, 2, true,
+     "The camera will be offline for around a minute."},
+    {"sd-format", "Format SD card", "Maintenance", 3, 1, true,
+     "Erases every recording on the card. This cannot be undone."},
+    {"sd-eject", "Eject SD card", "Maintenance", 3, 2, false},
+};
+
+const std::vector<MiotAction> kMxiangC500CnEnActions = {
+    {"ptz-calibrate", "Calibrate pan and tilt", "Pan and tilt", 2, 1, false,
+     "Re-homes the motor. The lens will sweep its full range."},
+    {"restart-device", "Restart camera", "Maintenance", 2, 2, true,
+     "The camera will be offline for around a minute."},
+    {"sd-format", "Format SD card", "Maintenance", 4, 1, true,
+     "Erases every recording on the card. This cannot be undone."},
+    {"sd-eject", "Eject SD card", "Maintenance", 4, 2, false},
+};
+
+const std::vector<MiotProperty> kNoProperties;
+const std::vector<MiotAction> kNoActions;
+
+bool usesDefaultProperties(const std::string& model) {
+    return isDualLens(model) || model.find("hlc8") != std::string::npos;
+}
 
 std::vector<MiotProperty> cw300Properties(int humanDetectionPiid, int moveDetectionPiid) {
     // The Chinese moc001 and global/EU moc006 specifications agree on this
@@ -239,6 +457,21 @@ const std::vector<MiotAction> kCw700sActions = {
 } // namespace
 
 const std::vector<MiotProperty>& cameraProperties(const std::string& model) {
+    if (isC400(model)) {
+        return kC400Properties;
+    }
+    if (isC500(model)) {
+        if (model == "chuangmi.camera.061a03") {
+            return kC500ProProperties;
+        }
+        if (model == "mxiang.camera.c500cn" || model == "mxiang.camera.c500en") {
+            return kMxiangC500CnEnProperties;
+        }
+        if (model == "xiaomi.camera.c500a") {
+            return kXiaomiC500aProperties;
+        }
+        return kMxiangC500Properties;
+    }
     if (model == "mxiang.camera.moc001") {
         return kCw300Moc001Properties;
     }
@@ -248,17 +481,29 @@ const std::vector<MiotProperty>& cameraProperties(const std::string& model) {
     if (isCw700s(model)) {
         return kCw700sProperties;
     }
-    return kDefaultProperties;
+    return usesDefaultProperties(model) ? kDefaultProperties : kNoProperties;
 }
 
 const std::vector<MiotAction>& cameraActions(const std::string& model) {
+    if (isC400(model)) {
+        return kC400Actions;
+    }
+    if (isC500(model)) {
+        if (model == "chuangmi.camera.061a03") {
+            return kC500ProActions;
+        }
+        if (model == "mxiang.camera.c500cn" || model == "mxiang.camera.c500en") {
+            return kMxiangC500CnEnActions;
+        }
+        return kMxiangC500Actions;
+    }
     if (isCw300(model)) {
         return kCw300Actions;
     }
     if (isCw700s(model)) {
         return kCw700sActions;
     }
-    return kDefaultActions;
+    return usesDefaultProperties(model) ? kDefaultActions : kNoActions;
 }
 
 const MiotProperty* findCameraProperty(const std::string& model, std::string_view key) {
