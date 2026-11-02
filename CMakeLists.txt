@@ -271,6 +271,13 @@ add_dependencies(stage_runtime XiaomiViewer)
 # --- Hardware-independent tests --------------------------------------------
 include(CTest)
 if(BUILD_TESTING)
+    # RelWithDebInfo defines NDEBUG, but these tests use assert for checks.
+    if(MSVC)
+        add_compile_options(/UNDEBUG)
+    else()
+        add_compile_options(-UNDEBUG)
+    endif()
+
     add_executable(camera_diagnostics_tests
         tests/CameraDiagnosticsTests.cpp
         src/app/CameraDiagnostics.cpp)
