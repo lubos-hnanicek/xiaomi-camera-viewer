@@ -37,7 +37,9 @@ bool Recorder::open(const std::filesystem::path& path,
     }
 
     hasAudio_ = !audioTracks.empty();
-    firstPts_ = -1;
+    recordingStart_ = {};
+    timingStarted_ = false;
+    timeline_.reset();
     lastPts_ = -1;
     lastAudioPts_ = -1;
 
@@ -52,18 +54,14 @@ bool Recorder::writeVideo(const uint8_t* data, size_t size, int64_t ptsMs, bool 
         return false;
     }
 
-    // The first video frame is what the whole file is timed from, audio
-    // included, so the two tracks keep the offset the camera sent them with.
-    if (firstPts_ < 0) {
-        firstPts_ = ptsMs;
+    const auto arrived = std::chrono::steady_clock::now();
+    if (!timingStarted_) {
+        recordingStart_ = arrived;
+        timingStarted_ = true;
     }
+    int64_t pts = timeline_.mapVideo(ptsMs, recordingElapsedMs(recordingStart_, arrived));
 
-    int64_t pts = ptsMs - firstPts_;
-
-    // Matroska will not take a timestamp that goes backwards, and a camera whose
-    // clock steps or wraps would otherwise end the recording. Nudging keeps the
-    // file going; the frame lands a millisecond after its neighbour instead of
-    // being lost.
+    // Several packets can arrive within one millisecond; keep timestamps strict.
     if (pts <= lastPts_) {
         pts = lastPts_ + 1;
     }
@@ -76,21 +74,24 @@ bool Recorder::writeVideo(const uint8_t* data, size_t size, int64_t ptsMs, bool 
     return true;
 }
 
-bool Recorder::writeAudio(const uint8_t* data, size_t size, int64_t ptsMs, std::string& error) {
+bool Recorder::writeAudio(const uint8_t* data, size_t size, int64_t ptsMs,
+                          std::string& error) {
     if (!muxer_.open() || !hasAudio_) {
         return true; // a recording without an audio track, which is not a failure
     }
 
     // Audio that arrived before the opening keyframe belongs to a moment the
     // file does not cover, and would have to be written at a negative time.
-    if (firstPts_ < 0) {
+    if (!timingStarted_) {
         return true;
     }
 
-    int64_t pts = ptsMs - firstPts_;
-    if (pts < 0) {
+    const auto sourcePts = timeline_.mapAudio(
+        ptsMs, recordingElapsedMs(recordingStart_, std::chrono::steady_clock::now()));
+    if (!sourcePts) {
         return true;
     }
+    int64_t pts = *sourcePts;
     if (pts <= lastAudioPts_) {
         pts = lastAudioPts_ + 1;
     }
@@ -108,7 +109,9 @@ bool Recorder::writeAudio(const uint8_t* data, size_t size, int64_t ptsMs, std::
 void Recorder::close() {
     muxer_.close();
     hasAudio_ = false;
-    firstPts_ = -1;
+    recordingStart_ = {};
+    timingStarted_ = false;
+    timeline_.reset();
     lastPts_ = -1;
     lastAudioPts_ = -1;
 }

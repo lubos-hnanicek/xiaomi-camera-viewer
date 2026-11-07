@@ -19,34 +19,6 @@
 
 namespace xv {
 
-// Maps one camera clock epoch onto the application's elapsed recording clock.
-// Resetting and anchoring a new epoch is how a reconnect becomes a real gap.
-class RecordingTimeline {
-public:
-    void reset() {
-        anchored_ = false;
-        sourceBaseMs_ = 0;
-        elapsedBaseMs_ = 0;
-    }
-    void anchor(int64_t sourcePtsMs, int64_t elapsedMs) {
-        anchored_ = true;
-        sourceBaseMs_ = sourcePtsMs;
-        elapsedBaseMs_ = elapsedMs;
-    }
-    [[nodiscard]] bool anchored() const { return anchored_; }
-    [[nodiscard]] std::optional<int64_t> map(int64_t sourcePtsMs) const {
-        if (!anchored_) {
-            return std::nullopt;
-        }
-        return elapsedBaseMs_ + (sourcePtsMs - sourceBaseMs_);
-    }
-
-private:
-    bool anchored_ = false;
-    int64_t sourceBaseMs_ = 0;
-    int64_t elapsedBaseMs_ = 0;
-};
-
 class GlobalRecorder {
 public:
     enum class State {
@@ -124,9 +96,9 @@ private:
         bool segmentStarted = false;
         size_t muxTrack = 0;
         int64_t lastOutputMs = -1;
+        RecordingTimeline timeline;
         size_t prerollBytes = 0;
         std::deque<Event> preroll;
-        RecordingTimeline timeline;
     };
 
     struct SourceRuntime {

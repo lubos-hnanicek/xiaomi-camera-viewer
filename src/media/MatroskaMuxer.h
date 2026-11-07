@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -45,6 +46,62 @@ struct MatroskaAudioTrack {
 [[nodiscard]] constexpr int64_t monotonicRecordingPts(int64_t candidate, int64_t previous) {
     return candidate <= previous ? previous + 1 : candidate;
 }
+
+[[nodiscard]] inline int64_t recordingElapsedMs(
+    std::chrono::steady_clock::time_point start, std::chrono::steady_clock::time_point at) {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(at - start).count();
+}
+
+class RecordingTimeline {
+public:
+    void reset() {
+        anchored_ = false;
+        sourceClockUsable_ = true;
+        sourceBaseMs_ = 0;
+        elapsedBaseMs_ = 0;
+        lastSourcePtsMs_ = 0;
+    }
+
+    [[nodiscard]] bool anchored() const { return anchored_; }
+
+    int64_t mapVideo(int64_t sourcePtsMs, int64_t elapsedMs) {
+        if (!anchored_) {
+            anchored_ = true;
+            sourceBaseMs_ = sourcePtsMs;
+            elapsedBaseMs_ = elapsedMs;
+            lastSourcePtsMs_ = sourcePtsMs;
+            return elapsedMs;
+        }
+
+        const int64_t sourceDeltaMs = sourcePtsMs - sourceBaseMs_;
+        const int64_t elapsedDeltaMs = elapsedMs - elapsedBaseMs_;
+        if (sourceClockUsable_ &&
+            (sourcePtsMs <= lastSourcePtsMs_ ||
+             (elapsedDeltaMs >= 50 && sourceDeltaMs >= 0 && sourceDeltaMs < elapsedDeltaMs / 4))) {
+            sourceClockUsable_ = false;
+        }
+        lastSourcePtsMs_ = sourcePtsMs;
+
+        return sourceClockUsable_ ? elapsedBaseMs_ + sourceDeltaMs : elapsedMs;
+    }
+
+    [[nodiscard]] std::optional<int64_t> mapAudio(int64_t sourcePtsMs, int64_t elapsedMs) const {
+        if (!anchored_) {
+            return std::nullopt;
+        }
+
+        const int64_t ptsMs = sourceClockUsable_ ? elapsedBaseMs_ + (sourcePtsMs - sourceBaseMs_)
+                                                 : elapsedMs;
+        return ptsMs < 0 ? std::nullopt : std::optional<int64_t>{ptsMs};
+    }
+
+private:
+    bool anchored_ = false;
+    bool sourceClockUsable_ = true;
+    int64_t sourceBaseMs_ = 0;
+    int64_t elapsedBaseMs_ = 0;
+    int64_t lastSourcePtsMs_ = 0;
+};
 
 // A small, single-threaded Matroska writer. Callers own timing and threading;
 // this class owns only FFmpeg's format context, tracks and packet.

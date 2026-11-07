@@ -520,34 +520,14 @@ bool GlobalRecorder::writeVideo(const Event& event, std::string& error) {
         video.segmentStarted = true;
     }
 
-    SourceRuntime& source = sources_.at(video.participant.sourceId);
-    if (!video.timeline.anchored()) {
-        if (!event.keyframe) {
-            return true;
-        }
-        int64_t anchor = std::max(event.elapsedMs, video.lastOutputMs + 1);
-        if (video.participant.audioOwner) {
-            anchor = std::max(anchor, source.lastOutputMs + 1);
-        }
-        video.timeline.anchor(event.ptsMs, anchor);
-    }
+    const int64_t mappedPts = video.timeline.mapVideo(event.ptsMs, event.elapsedMs);
+    const int64_t outputPts = monotonicRecordingPts(mappedPts, video.lastOutputMs);
 
-    std::optional<int64_t> outputPts = video.timeline.map(event.ptsMs);
-    if (!outputPts || *outputPts < 0) {
-        if (!event.keyframe) {
-            return true;
-        }
-        const int64_t anchor = std::max(event.elapsedMs, video.lastOutputMs + 1);
-        video.timeline.anchor(event.ptsMs, anchor);
-        outputPts = anchor;
-    }
-    *outputPts = monotonicRecordingPts(*outputPts, video.lastOutputMs);
-
-    if (!muxer_.writeVideo(video.muxTrack, event.data.data(), event.data.size(), *outputPts,
+    if (!muxer_.writeVideo(video.muxTrack, event.data.data(), event.data.size(), outputPts,
                            event.keyframe, error)) {
         return false;
     }
-    video.lastOutputMs = *outputPts;
+    video.lastOutputMs = outputPts;
     publishProgress();
     return true;
 }
@@ -565,20 +545,20 @@ bool GlobalRecorder::writeAudio(const Event& event, std::string& error) {
     }
 
     const auto owner = videos_.find(source.audioOwnerVideoId);
-    if (owner == videos_.end()) {
+    if (owner == videos_.end() || !owner->second.segmentStarted) {
         return true;
     }
-    std::optional<int64_t> outputPts = owner->second.timeline.map(event.ptsMs);
-    if (!outputPts || *outputPts < 0) {
+    const auto mappedPts = owner->second.timeline.mapAudio(event.ptsMs, event.elapsedMs);
+    if (!mappedPts) {
         return true;
     }
-    *outputPts = monotonicRecordingPts(*outputPts, source.lastOutputMs);
+    const int64_t outputPts = monotonicRecordingPts(*mappedPts, source.lastOutputMs);
 
-    if (!muxer_.writeAudio(*source.muxTrack, event.data.data(), event.data.size(), *outputPts,
+    if (!muxer_.writeAudio(*source.muxTrack, event.data.data(), event.data.size(), outputPts,
                            error)) {
         return false;
     }
-    source.lastOutputMs = *outputPts;
+    source.lastOutputMs = outputPts;
     publishProgress();
     return true;
 }
@@ -589,8 +569,8 @@ void GlobalRecorder::endSession(const std::string& videoId) {
         return;
     }
     VideoRuntime& video = found->second;
-    video.timeline.reset();
     video.segmentStarted = false;
+    video.timeline.reset();
     if (!muxer_.open()) {
         video.prepared = false;
         video.preroll.clear();
@@ -650,9 +630,7 @@ std::string GlobalRecorder::preparationTimeoutError() const {
 }
 
 int64_t GlobalRecorder::elapsedNow() const {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
-                                                                 started_)
-        .count();
+    return recordingElapsedMs(started_, std::chrono::steady_clock::now());
 }
 
 std::string GlobalRecorder::fileName(

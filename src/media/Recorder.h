@@ -12,8 +12,9 @@ namespace xv {
 //
 // Nothing is re-encoded. The bytes the camera sent are the bytes on disk, so a
 // recording is exactly as good as the live picture and costs almost no CPU, and
-// the file inherits whatever the camera chose to send: its codecs, its
-// resolution, and its timing, uneven frame intervals included.
+// the file inherits whatever the camera chose to send: its codecs and its
+// resolution. Camera timestamps are retained when they track elapsed time;
+// packet arrival time is the fallback for cameras with a broken clock.
 //
 // Everything here belongs to the stream worker's thread. The camera hands out
 // access units on that thread and this writes them straight through, so there is
@@ -61,19 +62,17 @@ public:
     [[nodiscard]] const std::filesystem::path& path() const { return muxer_.path(); }
     [[nodiscard]] uint64_t bytesWritten() const { return muxer_.bytesWritten(); }
 
-    // How much footage is in the file, from the camera's own timestamps rather
-    // than the clock, so it measures what was recorded and not how long the
-    // button was down.
+    // How much footage is in the file, from the selected recording timeline.
     [[nodiscard]] int64_t durationMs() const { return lastPts_ < 0 ? 0 : lastPts_; }
 
 private:
     MatroskaMuxer muxer_;
     bool hasAudio_ = false;
 
-    // Timestamps arrive as the camera's own clock, which starts wherever it
-    // happens to be, so the file is rebased on its first frame. Both tracks are
-    // rebased on the same one, which is what keeps them in sync with each other.
-    int64_t firstPts_ = -1;
+    // Both tracks use the first video packet as their shared timeline epoch.
+    std::chrono::steady_clock::time_point recordingStart_{};
+    bool timingStarted_ = false;
+    RecordingTimeline timeline_;
     int64_t lastPts_ = -1;
     int64_t lastAudioPts_ = -1;
 };
