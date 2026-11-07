@@ -248,6 +248,14 @@ shows in the PC's current local time zone as playback moves. `Space` pauses, the
 arrow keys seek five seconds, and returning to the live grid reconnects the
 cameras.
 
+Three consequences of recording the stream rather than a re-encode of it. A file
+can only begin on a keyframe, so recording starts within a second or two of
+being asked rather than instantly; the pad says `starting` until it does. A
+session that drops ends its file and the reconnection opens a new one, because
+two sessions do not share a timeline. And the audio track has to be declared
+when the file is created, so a recording started before the camera has sent its
+first audio packet -- a second or so after connecting -- is video only.
+
 ## Playing a camera's SD card
 
 **View -> Camera SD card** picks a camera and plays what is on the card inside
@@ -302,13 +310,7 @@ catalogue of about ten thousand clips in under a second, and `filefound`
 followed by frames at real-time rate. Other cameras are listed but greyed out
 rather than being allowed to sit on an empty screen.
 
-Three consequences of recording the stream rather than a re-encode of it. A file
-can only begin on a keyframe, so recording starts within a second or two of
-being asked rather than instantly; the pad says `starting` until it does. A
-session that drops ends its file and the reconnection opens a new one, because
-two sessions do not share a timeline. And the audio track has to be declared
-when the file is created, so a recording started before the camera has sent its
-first audio packet -- a second or so after connecting -- is video only.
+## Window and configuration
 
 Only one copy runs at a time in the current Windows session. Launching it again brings the
 running one to the front rather than starting a second, which would compete with
