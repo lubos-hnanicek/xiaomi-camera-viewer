@@ -34,11 +34,11 @@ attached separately to each release for debugging.
   and costs no CPU
 - Global recording into one synchronized multi-track MKV, plus a built-in player
   that shows every video track in a grid and plays one selected microphone
-- Camera settings driven by the device's own MIoT specification: night vision,
-  HDR, image flip, motion detection and sensitivity, tracking, fill light,
-  siren, indicator LED, recording mode and SD card status
+- Camera settings selected from model-specific MIoT tables: night vision, HDR,
+  image flip, motion detection and sensitivity, tracking, fill light, siren,
+  indicator LED, recording mode and SD card status
 - Playback of the footage on a camera's own SD card, browsed by day, hour and
-  clip, on the CW400, the global CW300 and both lenses of the CW500
+  clip, on the CW400, C400, global CW300 and both lenses of the CW500
 - Both lenses of a dual-lens CW500 as independent tiles over one camera session
 - Automatic reconnection with backoff when a camera drops the session
 - Sign-in handles captchas and two-step verification; the resulting token is
@@ -169,7 +169,9 @@ Choose the camera when prompted. Standalone runs put a reviewable folder and ZIP
 on your Desktop. Both workflows include model/specification data, read-only property results,
 transport negotiation, command replies, RDT observations and media headers. It
 also keeps partial results when a camera cannot connect. No developer tools,
-administrator rights, camera credentials or configuration edits are needed.
+administrator rights, camera credentials or manual configuration edits are
+needed. The app saves its current configuration automatically before launching
+the collector; standalone runs leave the existing configuration unchanged.
 The execution-policy override applies only to this PowerShell process.
 
 Fill in the folder's `owner-report.txt`, inspect the files for personal data,
@@ -289,10 +291,12 @@ rules rather than this program's:
   doing rather than a preference: it will stream that picture only
   intermittently, while it hands the file over every time.
 
-Only the CW400, the CW500 and the global/EU CW300 (`mxiang.camera.moc006`) are
-offered. The requests were recovered from IMILAB's published firmware for the
-first two boards, and a model that reads them differently does not fail
-politely: it says nothing at all. The CW300 was added after
+The CW400, C400 (`chuangmi.camera.039a04`), CW500 and global/EU CW300
+(`mxiang.camera.moc006`) are offered. The requests were recovered from
+IMILAB's published firmware for the CW400 and CW500 boards; C400 follows the
+same playback path in this build, but its hardware coverage is model-specific.
+A model that reads the requests differently does not fail politely: it says
+nothing at all. The CW300 was added after
 `scripts/probe-sdcard.ps1` showed a real one answering the same requests: a
 catalogue of about ten thousand clips in under a second, and `filefound`
 followed by frames at real-time rate. Other cameras are listed but greyed out
@@ -306,7 +310,7 @@ two sessions do not share a timeline. And the audio track has to be declared
 when the file is created, so a recording started before the camera has sent its
 first audio packet -- a second or so after connecting -- is video only.
 
-Only one copy runs at a time, per signed-in user. Launching it again brings the
+Only one copy runs at a time in the current Windows session. Launching it again brings the
 running one to the front rather than starting a second, which would compete with
 the first for the cameras.
 
@@ -360,11 +364,24 @@ Then:
 .\scripts\build.ps1 -Package # ...and write a redistributable zip to dist\
 ```
 
-For an ARM64 build, run the install command in an MSYS2 CLANGARM64 shell and
-select the target explicitly:
+For an ARM64 build, install the bridge toolchain from an MSYS2 CLANG64 shell.
+The build uses the x64-hosted Clang driver with the ARM64 sysroot, so the
+CLANGARM64 shell's compiler alone is not sufficient on an x64 Windows host:
 
 ```powershell
-pacman -S mingw-w64-clang-aarch64-toolchain
+pacman -S mingw-w64-clang-aarch64-toolchain mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-llvm-tools
+```
+
+If MSYS2 is not installed under `%LOCALAPPDATA%\msys2`, point the build at its
+installation directory before building:
+
+```powershell
+$env:MSYS2_LOCATION = 'C:\msys64'
+```
+
+Then select the target explicitly:
+
+```powershell
 .\scripts\fetch-deps.ps1 -Architecture arm64
 .\scripts\build.ps1 -Architecture arm64 -Package
 ```
@@ -382,6 +399,7 @@ Tests:
 cd bridge; go test ./...          # protocol and dispatch logic
 .\scripts\test-bridge-abi.ps1     # the C ABI, against the real DLL
 .\scripts\check-metadata.ps1      # version resources, which signing depends on
+.\scripts\build.ps1 -TestsOnly    # the four native CTest targets
 ```
 
 The version in the `project()` call in `CMakeLists.txt` is the only place a
@@ -398,7 +416,8 @@ SmartScreen warning when they are first run.
 
 To cut a release, bump `VERSION` in `CMakeLists.txt`, commit it, and push a
 matching tag such as `v0.4.0`. The workflow builds and tests that exact source,
-uploads the package and symbols, and creates a draft GitHub release for review.
+uploads the package and symbols, and creates a GitHub release. It initially
+creates the release as a draft while uploading the assets, then publishes it.
 
 ## How it works
 
@@ -650,11 +669,12 @@ for working out a model that does not respond to the payload above.
   streams a recording in real time. The bar under the picture and the arrow keys
   jump to another clip's start; playing from a moment part-way through a clip
   still means playing that clip from its beginning.
-- **SD card playback is limited to the CW400, the CW500 and the global CW300.**
-  The requests came from the first two boards' firmware, and the CW300 was
-  confirmed by running them against real hardware. The China CW300 (`moc001`)
-  and other models are greyed out in the menu rather than offered and left
-  blank.
+- **SD card playback is limited to the CW400, C400, the CW500 and the global
+  CW300.** The requests came from the CW400 and CW500 boards' firmware, and the
+  CW300 was confirmed by running them against real hardware. C400
+  (`chuangmi.camera.039a04`) is included by the current build, but its hardware
+  coverage is model-specific. The China CW300 (`moc001`) and other models are
+  greyed out in the menu rather than offered and left blank.
 - **A CW500's second lens plays from downloaded files, so it is not instant.**
   The camera streams that picture only intermittently; it sends the file every
   time. Each minute is fetched before it plays, and the next is fetched while

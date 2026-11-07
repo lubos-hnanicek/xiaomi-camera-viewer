@@ -257,10 +257,11 @@ void drawRecordingAndSound() {
     bullet("The second lens is fetched clip by clip rather than streamed, so it pauses a moment "
            "before each minute while the file arrives. That is deliberate: the camera will "
            "stream that picture only intermittently, while it hands the file over every time.");
-    bullet("Only the CW400, CW500 and global CW300 are offered. The requests were recovered from the "
-           "published firmware for the first two, and a camera that reads them differently says "
-           "nothing at all rather than refusing, so the rest are greyed out instead of being "
-           "left blank.");
+        bullet("The CW400, C400, CW500 and global CW300 are offered. The requests were recovered from "
+            "published firmware for the CW400 and CW500; C400 follows the same playback path in "
+            "this build, but its hardware coverage is model-specific. A camera that reads the "
+            "requests differently says nothing at all rather than refusing, so the rest are "
+            "greyed out instead of being left blank.");
     aside("Minutes the camera marked as containing a detection are labelled event. "
           "They are still one-minute files; the mark was packed into the same number as "
           "the length, which is why they once appeared as 316-second clips. "

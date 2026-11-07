@@ -994,7 +994,7 @@ void App::drawMenuBar() {
                     if (!supported) {
                         ImGui::SetItemTooltip(
                             "This model's card has not been worked out yet. Only the "
-                            "CW400, CW500 and global CW300 answer the requests this build sends.");
+                            "CW400, C400, CW500 and global CW300 answer the requests this build sends.");
                     }
                 }
                 ImGui::EndMenu();

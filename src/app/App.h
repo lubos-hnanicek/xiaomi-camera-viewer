@@ -167,7 +167,7 @@ public:
     SdPlayer& sdPlayer() { return sdPlayer_; }
     VideoFrameTexture& sdTexture() { return sdTexture_; }
     // Whether a camera can have its card opened: it has to be one this build
-    // knows how to ask, which so far means the CW400, the CW500 and the global CW300. Both of a
+    // knows how to ask, which so far means the CW400, C400, CW500 and global CW300. Both of a
     // CW500's tiles qualify, each browsing its own catalogue on the card.
     [[nodiscard]] static bool sdPlaybackSupported(const CameraConfig& camera);
     void toggleSdListening();
