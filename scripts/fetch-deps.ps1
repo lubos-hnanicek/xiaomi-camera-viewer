@@ -38,8 +38,8 @@ $ThirdParty = Join-Path $RepoRoot 'third_party'
 # The docking branch, not master: multi-viewport support lives only there, and it
 # is what lets the help and log windows be dragged out of the main window and
 # become windows of their own. Same release as the master tag of the same name.
-$ImGuiTag = 'v1.92.9b-docking'
-$ImGuiCommit = 'b48d1afbe8ee8b238e2961dc363a949dd7304e23'
+$ImGuiTag = 'v1.93.0-docking'
+$ImGuiCommit = 'b916186e66aa3c02b72c6ca17455516512ed8049'
 
 $JsonTag = 'v3.12.0'
 $JsonSha256 = 'AAF127C04CB31C406E5B04A63F1AE89369FCCDE6D8FA7CDDA1ED4F32DFC5DE63'
