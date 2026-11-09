@@ -253,7 +253,7 @@ set(STAGE_COMMANDS
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/docs/camera-diagnostics.md" "$<TARGET_FILE_DIR:XiaomiViewer>")
 
-foreach(dll avcodec-62 avformat-62 avutil-60 swresample-6)
+foreach(dll avcodec-63 avformat-63 avutil-61 swresample-7)
     list(APPEND STAGE_COMMANDS
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${FFMPEG_DIR}/bin/${dll}.dll" "$<TARGET_FILE_DIR:XiaomiViewer>")
