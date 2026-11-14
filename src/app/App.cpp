@@ -1281,11 +1281,13 @@ void App::pumpTasks() {
             stream->miotLoaded = true;
         }
 
-        // A write only tells us it was accepted; re-reading is what confirms the
-        // camera's actual state, including values it silently clamped.
+        // Actions may change other properties, so read them again after success.
+        // Property writes already refresh and verify their value in MiotClient.
         if (stream->miotRefreshQueued) {
             stream->miotRefreshQueued = false;
-            loadSettingsFor(*stream);
+            if (result->empty()) {
+                loadSettingsFor(*stream);
+            }
         }
     }
 }
@@ -2055,7 +2057,6 @@ void App::writeSetting(CameraStream& stream, const MiotProperty& property, const
     }
 
     stream.miotBusyLabel = std::format("Applying {}", property.label);
-    stream.miotRefreshQueued = true;
 
     MiotClient* client = stream.miot.get();
     const MiotProperty target = property;

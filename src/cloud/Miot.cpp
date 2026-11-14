@@ -1,5 +1,8 @@
 #include "cloud/Miot.h"
 
+#include <chrono>
+#include <thread>
+
 #include "app/Log.h"
 
 namespace xv {
@@ -506,6 +509,41 @@ const std::vector<MiotAction>& cameraActions(const std::string& model) {
     return usesDefaultProperties(model) ? kDefaultActions : kNoActions;
 }
 
+bool miotSetResultOk(const Json& response, int siid, int piid, std::string& error) {
+    if (!response.contains("result") || !response["result"].is_array()) {
+        error = "the camera returned an unexpected property write result";
+        return false;
+    }
+
+    const Json& results = response["result"];
+    const Json* propertyResult = nullptr;
+    for (const auto& result : results) {
+        if (result.is_object() && result.value("siid", -1) == siid &&
+            result.value("piid", -1) == piid) {
+            propertyResult = &result;
+            break;
+        }
+    }
+    if (propertyResult == nullptr && results.size() == 1 && results[0].is_object() &&
+        !results[0].contains("siid") && !results[0].contains("piid")) {
+        propertyResult = &results[0];
+    }
+    if (propertyResult == nullptr || !propertyResult->contains("code") ||
+        !(*propertyResult)["code"].is_number_integer()) {
+        error = "the camera returned no result for the requested property";
+        return false;
+    }
+
+    const int code = (*propertyResult)["code"].get<int>();
+    if (code != 0) {
+        error = "the camera rejected the setting (code " + std::to_string(code) + ")";
+        return false;
+    }
+
+    error.clear();
+    return true;
+}
+
 const MiotProperty* findCameraProperty(const std::string& model, std::string_view key) {
     for (const auto& property : cameraProperties(model)) {
         if (key == property.key) {
@@ -598,15 +636,55 @@ bool MiotClient::write(const MiotProperty& property, const Json& value, std::str
         XV_WARN("could not set {}: {}", property.key, error);
         return false;
     }
+    if (!miotSetResultOk(response, property.siid, property.piid, error)) {
+        XV_WARN("could not set {}: {}", property.key, error);
+        return false;
+    }
 
-    // Reflect the change locally so the control does not snap back while the
-    // next refresh is still in flight.
-    for (auto& current : values_) {
-        if (current.siid == property.siid && current.piid == property.piid) {
-            current.value = value;
-            current.present = true;
-            break;
+    if (property.type == MiotType::Bool || property.type == MiotType::Enum) {
+        constexpr int kVerificationAttempts = 5;
+        constexpr auto kVerificationInterval = std::chrono::seconds(1);
+        Json lastValue;
+        bool valuePresent = false;
+        std::string readError;
+
+        for (int attempt = 0; attempt < kVerificationAttempts; ++attempt) {
+            if (attempt > 0) {
+                std::this_thread::sleep_for(kVerificationInterval);
+            }
+            readError.clear();
+            if (!refresh(readError)) {
+                continue;
+            }
+
+            const std::optional<MiotValue> current = find(property.siid, property.piid);
+            if (!current.has_value() || !current->present) {
+                continue;
+            }
+            lastValue = current->value;
+            valuePresent = true;
+            if (lastValue == value) {
+                XV_INFO("set {} on {}", property.key, did_);
+                error.clear();
+                return true;
+            }
         }
+
+        if (!readError.empty()) {
+            error = "the setting was accepted but could not be verified: " + readError;
+        } else if (valuePresent) {
+            error = "the camera kept value " + lastValue.dump() + " instead of " + value.dump();
+        } else {
+            error = "the setting was accepted but was absent from the camera's refreshed values";
+        }
+        XV_WARN("could not verify {}: {}", property.key, error);
+        return false;
+    }
+
+    if (!refresh(error)) {
+        error = "the setting was accepted but could not be verified: " + error;
+        XV_WARN("could not verify {}: {}", property.key, error);
+        return false;
     }
 
     XV_INFO("set {} on {}", property.key, did_);

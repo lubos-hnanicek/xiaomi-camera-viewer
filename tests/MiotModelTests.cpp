@@ -30,6 +30,16 @@ const xv::MiotAction* action(const std::vector<xv::MiotAction>& actions, std::st
 int main() {
     using namespace xv;
 
+    std::string error;
+    assert(miotSetResultOk(
+        Json{{"result", Json::array({Json{{"siid", 2}, {"piid", 3}, {"code", 0}}})}},
+        2, 3, error));
+    assert(!miotSetResultOk(
+        Json{{"result", Json::array({Json{{"siid", 2}, {"piid", 3}, {"code", 23}}})}},
+        2, 3, error));
+    assert(error.find("23") != std::string::npos);
+    assert(!miotSetResultOk(Json{{"result", Json::array()}}, 2, 3, error));
+
     const auto& c400 = cameraProperties("chuangmi.camera.039a04");
     const MiotProperty* c400Night = property(c400, "night-shot");
     assert(c400Night != nullptr && c400Night->siid == 2 && c400Night->piid == 3);

@@ -78,6 +78,9 @@ struct MiotValue {
 const std::vector<MiotProperty>& cameraProperties(const std::string& model);
 const std::vector<MiotAction>& cameraActions(const std::string& model);
 
+// Checks the per-property result returned by miot.set for one requested value.
+bool miotSetResultOk(const Json& response, int siid, int piid, std::string& error);
+
 // One property by key, for the places that want a specific setting rather than
 // the whole table. Null if the key is not in the table, which is a programming
 // mistake rather than something a camera can cause.

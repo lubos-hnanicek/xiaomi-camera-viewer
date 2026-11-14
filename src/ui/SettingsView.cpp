@@ -273,11 +273,13 @@ void drawSettingsView(App& app) {
 
     if (!stream.miotError.empty()) {
         ImGui::PushStyleColor(ImGuiCol_Text, theme::kFailed);
-        ImGui::TextWrapped("Could not read settings: %s", stream.miotError.c_str());
+        ImGui::TextWrapped("Could not complete settings operation: %s", stream.miotError.c_str());
         ImGui::PopStyleColor();
         ImGui::Dummy(ImVec2(0, 6));
         if (ImGui::Button("Try again")) {
             stream.miotError.clear();
+            stream.miotLoaded = false;
+            app.loadSettingsFor(stream);
         }
         ImGui::EndChild();
         ImGui::PopStyleVar();
