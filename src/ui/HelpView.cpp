@@ -169,9 +169,9 @@ void drawControls() {
     };
     bindings("##gridmouse", kGridMouse);
 
-    aside("Magnification is 2x by default. live_view_zoom in config.json changes the factor, and "
-          "1.0 turns it off; the right button then only selects the tile. The same hold-to-magnify "
-          "works on a camera's SD card picture.");
+    aside("Magnification is 2x by default. File > Configuration changes the factor, and 1.0 turns "
+          "it off; the right button then only selects the tile. The same hold-to-magnify works on "
+          "a camera's SD card picture.");
 
     ImGui::SeparatorText("Mouse: the control pad");
 
@@ -203,8 +203,8 @@ void drawRecordingAndSound() {
     ImGui::SeparatorText("Recording");
 
     paragraph("R, or Record on the pad, writes the selected camera's stream to a Matroska file in "
-              "Videos\\XiaomiViewer. Streams -> Open recordings folder goes there, and "
-              "recordings_dir in the configuration file moves it somewhere else.");
+              "Videos\\XiaomiViewer. Streams -> Open recordings folder goes there; File > "
+              "Configuration can choose a different folder.");
     paragraph("Nothing is re-encoded: the camera's own video and audio packets go into the "
               "container as they arrive. A recording is therefore exactly what the camera sent, at "
               "its own quality, and it costs a few percent of one core rather than a GPU encoder.");
@@ -363,6 +363,9 @@ void drawTroubleshooting(App& app) {
               "written to xiaomi-viewer.log in %APPDATA%\\XiaomiViewer, beside config.json. That "
               "log is the first thing to read when a camera will not connect, and the first thing "
               "to attach to a bug report.");
+    paragraph("File -> Configuration is available from any screen. It sets the UI scale, font and "
+              "font size, live-view magnification and recording folder; changes are saved in "
+              "config.json and font changes apply immediately.");
 
     if (ImGui::Button("Open configuration folder", ImVec2(230, 0))) {
         ::ShellExecuteW(nullptr, L"open", AppConfig::directory().c_str(), nullptr, nullptr,

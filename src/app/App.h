@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <array>
 #include <functional>
 #include <future>
 #include <memory>
@@ -20,6 +21,8 @@
 #include "media/StreamWorker.h"
 #include "render/D3D11Context.h"
 #include "render/VideoFrameTexture.h"
+
+struct ImFont;
 
 namespace xv {
 
@@ -91,12 +94,34 @@ struct DiscoveredDevice {
     std::string mac;
 };
 
+struct WindowsFontOption {
+    std::string displayName;
+    std::string fileName;
+};
+
+struct ConfigurationDialogState {
+    bool open = false;
+    bool openRequested = false;
+    int fontChoice = 0;
+    float uiScale = 1.0f;
+    float uiFontSize = 15.0f;
+    float liveViewZoom = 2.0f;
+    std::array<char, 64> fontSearch{};
+    std::array<char, 128> uiFontName{};
+    std::array<char, 1024> recordingsDir{};
+    std::vector<WindowsFontOption> windowsFonts;
+    std::string fontCatalogError;
+    std::string error;
+};
+
 class App {
 public:
     int run(HINSTANCE instance, int showCommand);
 
     // --- State shared with the views ---
     AppConfig& config() { return config_; }
+    ConfigurationDialogState& configurationDialog() { return configurationDialog_; }
+    HWND windowHandle() const { return window_; }
     D3D11Context& gpu() { return gpu_; }
     std::vector<std::unique_ptr<CameraStream>>& streams() { return streams_; }
     std::vector<DiscoveredDevice>& devices() { return devices_; }
@@ -156,6 +181,8 @@ public:
     [[nodiscard]] bool globalRecordingAvailable() const;
     [[nodiscard]] bool globallyRecording(const CameraStream& stream) const;
     void openRecordingsFolder() const;
+    void openConfigurationDialog();
+    bool applyConfigurationDialog();
 
     // Plays what a camera holds on its own SD card.
     //
@@ -241,6 +268,12 @@ public:
     void setFullscreen(bool value);
 
 private:
+    struct RuntimeFont {
+        UiFont type;
+        std::string name;
+        ImFont* font;
+    };
+
     static LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     LRESULT handleMessage(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
 
@@ -263,6 +296,8 @@ private:
     void handleGlobalKeys();
 
     void drawMenuBar();
+    void applyUiScale();
+    void applyPendingUiFont();
 
     // Closes whichever player screen is up, so the menu can move elsewhere.
     void leavePlayerScreens();
@@ -283,6 +318,9 @@ private:
     HWND window_ = nullptr;
     D3D11Context gpu_;
     AppConfig config_;
+    ConfigurationDialogState configurationDialog_;
+    bool pendingUiFontReload_ = false;
+    std::vector<RuntimeFont> runtimeFonts_;
 
     Screen screen_ = Screen::Login;
     bool running_ = true;

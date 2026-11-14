@@ -6,6 +6,7 @@
 #include <shellapi.h>
 #include <wincodec.h>
 #include <windowsx.h>
+#include <winreg.h>
 
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
@@ -13,6 +14,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <unordered_map>
 
@@ -45,6 +47,153 @@ constexpr int kDefaultHeight = 900;
 // the docking station, so a position that was fine last time can leave the
 // window somewhere with no way to drag it back.
 constexpr double kMinVisibleFraction = 0.5;
+
+ImFont* addConfiguredFont(ImFontAtlas* atlas, const AppConfig& config, std::string& error) {
+    if (config.uiFont == UiFont::ProggyClean) {
+        return atlas->AddFontDefaultBitmap();
+    }
+
+    std::filesystem::path fontPath;
+    std::string fontLabel;
+    if (config.uiFont == UiFont::ProggyVector) {
+        fontLabel = "ProggyVector";
+        const char* fontFileName = "ProggyVector-Regular.ttf";
+        fontPath = std::filesystem::current_path() / fontFileName;
+        std::string modulePath(MAX_PATH, '\0');
+        const DWORD modulePathLength =
+            ::GetModuleFileNameA(nullptr, modulePath.data(), static_cast<DWORD>(modulePath.size()));
+        if (modulePathLength > 0 && modulePathLength < modulePath.size()) {
+            modulePath.resize(modulePathLength);
+            fontPath = std::filesystem::path(modulePath).parent_path() / fontFileName;
+        }
+    } else {
+        fontLabel = config.uiFontName;
+        char windowsDirectory[MAX_PATH]{};
+        const UINT windowsDirectoryLength =
+            ::GetWindowsDirectoryA(windowsDirectory, ARRAYSIZE(windowsDirectory));
+        if (windowsDirectoryLength > 0 && windowsDirectoryLength < ARRAYSIZE(windowsDirectory)) {
+            const std::string& value = config.uiFontName;
+            std::filesystem::path fontFileName(std::u8string(
+                reinterpret_cast<const char8_t*>(value.data()), value.size()));
+            fontFileName = fontFileName.filename();
+            if (fontFileName.extension().empty()) {
+                fontFileName += ".ttf";
+            }
+            fontPath = std::filesystem::path(windowsDirectory) / "Fonts" / fontFileName;
+        }
+    }
+
+    if (fontPath.empty()) {
+        error = "could not locate the Windows Fonts directory";
+        return nullptr;
+    }
+
+    const std::u8string encodedPath = fontPath.u8string();
+    const std::string fontPathUtf8(reinterpret_cast<const char*>(encodedPath.data()),
+                                   encodedPath.size());
+    ImFont* font = atlas->AddFontFromFileTTF(fontPathUtf8.c_str(), config.uiFontSize);
+    if (!font) {
+        error = std::format("could not load {} UI font from {}", fontLabel, fontPathUtf8);
+    }
+    return font;
+}
+
+constexpr float kProggyCleanSize = 13.0f;
+
+std::string utf8FromWide(std::wstring_view value) {
+    if (value.empty()) {
+        return {};
+    }
+    const int size = ::WideCharToMultiByte(CP_UTF8, 0, value.data(),
+                                            static_cast<int>(value.size()), nullptr, 0, nullptr,
+                                            nullptr);
+    if (size <= 0) {
+        return {};
+    }
+    std::string result(static_cast<size_t>(size), '\0');
+    ::WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), result.data(),
+                          size, nullptr, nullptr);
+    return result;
+}
+
+std::vector<WindowsFontOption> windowsFontFiles(std::string& error) {
+    constexpr wchar_t kFontRegistryKey[] =
+        L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts";
+    HKEY key = nullptr;
+    const LSTATUS openResult =
+        ::RegOpenKeyExW(HKEY_LOCAL_MACHINE, kFontRegistryKey, 0, KEY_READ | KEY_WOW64_64KEY,
+                        &key);
+    if (openResult != ERROR_SUCCESS) {
+        error = std::format("could not enumerate Windows fonts (error {})", openResult);
+        return {};
+    }
+
+    DWORD maxNameLength = 0;
+    DWORD maxDataLength = 0;
+    const LSTATUS queryResult = ::RegQueryInfoKeyW(
+        key, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &maxNameLength,
+        &maxDataLength, nullptr, nullptr);
+    if (queryResult != ERROR_SUCCESS) {
+        ::RegCloseKey(key);
+        error = std::format("could not read the Windows font catalog (error {})", queryResult);
+        return {};
+    }
+
+    std::vector<wchar_t> valueName(static_cast<size_t>(maxNameLength) + 1);
+    std::vector<wchar_t> valueData(static_cast<size_t>(maxDataLength) / sizeof(wchar_t) + 1);
+    std::vector<WindowsFontOption> fonts;
+    for (DWORD index = 0;; ++index) {
+        DWORD nameLength = maxNameLength + 1;
+        DWORD dataLength = static_cast<DWORD>(valueData.size() * sizeof(wchar_t));
+        DWORD type = 0;
+        std::fill(valueData.begin(), valueData.end(), L'\0');
+        const LSTATUS result =
+            ::RegEnumValueW(key, index, valueName.data(), &nameLength, nullptr, &type,
+                            reinterpret_cast<BYTE*>(valueData.data()), &dataLength);
+        if (result == ERROR_NO_MORE_ITEMS) {
+            break;
+        }
+        if (result != ERROR_SUCCESS) {
+            ::RegCloseKey(key);
+            error = std::format("could not read the Windows font catalog (error {})", result);
+            return {};
+        }
+        if ((type != REG_SZ && type != REG_EXPAND_SZ) || valueData.empty()) {
+            continue;
+        }
+
+        const std::wstring filePath(valueData.data());
+        const std::filesystem::path fontPath(filePath);
+        if (_wcsicmp(fontPath.extension().c_str(), L".ttf") != 0) {
+            continue;
+        }
+
+        std::wstring displayName(valueName.data(), nameLength);
+        constexpr std::wstring_view kTrueTypeSuffix = L" (TrueType)";
+        constexpr std::wstring_view kOpenTypeSuffix = L" (OpenType)";
+        if (displayName.ends_with(kTrueTypeSuffix)) {
+            displayName.resize(displayName.size() - kTrueTypeSuffix.size());
+        } else if (displayName.ends_with(kOpenTypeSuffix)) {
+            displayName.resize(displayName.size() - kOpenTypeSuffix.size());
+        }
+
+        const std::string fileName = utf8FromWide(fontPath.stem().wstring());
+        const std::string friendlyName = utf8FromWide(displayName);
+        if (!fileName.empty() && !friendlyName.empty() &&
+            std::none_of(fonts.begin(), fonts.end(), [&](const WindowsFontOption& font) {
+                return _stricmp(font.fileName.c_str(), fileName.c_str()) == 0;
+            })) {
+            fonts.push_back({friendlyName, fileName});
+        }
+    }
+    ::RegCloseKey(key);
+
+    std::sort(fonts.begin(), fonts.end(),
+              [](const WindowsFontOption& left, const WindowsFontOption& right) {
+                  return left.displayName < right.displayName;
+              });
+    return fonts;
+}
 
 // One size out of the icon group in our own resources. The size is asked for
 // explicitly because LoadIcon would always take the 32-pixel image and let
@@ -588,8 +737,6 @@ void App::setFullscreen(bool value) {
 
 // --- ImGui ------------------------------------------------------------------
 
-constexpr float kProggyCleanSize = 13.0f;
-
 bool App::setupImGui() {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -598,54 +745,13 @@ bool App::setupImGui() {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.IniFilename = nullptr; // window layout is derived, not persisted
 
-    std::string modulePath(MAX_PATH, '\0');
-    const DWORD modulePathLength =
-        ::GetModuleFileNameA(nullptr, modulePath.data(), static_cast<DWORD>(modulePath.size()));
-    ImFont* font = nullptr;
-    if (config_.uiFont == UiFont::ProggyClean) {
-        font = io.Fonts->AddFontDefaultBitmap();
-    } else {
-        std::filesystem::path fontPath;
-        std::string fontLabel;
-        if (config_.uiFont == UiFont::ProggyVector) {
-            fontLabel = "ProggyVector";
-            const char* fontFileName = "ProggyVector-Regular.ttf";
-            fontPath = std::filesystem::current_path() / fontFileName;
-            if (modulePathLength > 0 && modulePathLength < modulePath.size()) {
-                modulePath.resize(modulePathLength);
-                fontPath = std::filesystem::path(modulePath).parent_path() / fontFileName;
-            }
-        } else {
-            fontLabel = config_.uiFontName;
-            char windowsDirectory[MAX_PATH]{};
-            const UINT windowsDirectoryLength =
-                ::GetWindowsDirectoryA(windowsDirectory, ARRAYSIZE(windowsDirectory));
-            if (windowsDirectoryLength > 0 && windowsDirectoryLength < ARRAYSIZE(windowsDirectory)) {
-                std::filesystem::path fontFileName =
-                    std::filesystem::path(config_.uiFontName).filename();
-                if (fontFileName.extension().empty()) {
-                    fontFileName += ".ttf";
-                }
-                fontPath = std::filesystem::path(windowsDirectory) / "Fonts" / fontFileName;
-            }
-        }
-
-        if (!fontPath.empty()) {
-            const std::string fontPathString = fontPath.string();
-            const float fontSize = config_.uiFont == UiFont::ProggyClean ? kProggyCleanSize : config_.uiFontSize;
-            font = io.Fonts->AddFontFromFileTTF(fontPathString.c_str(), fontSize);
-            if (!font) {
-                XV_WARN("could not load {} UI font from {}", fontLabel, fontPathString);
-            }
-        } else {
-            XV_WARN("could not locate the Windows Fonts directory");
-        }
-    }
-
+    std::string fontError;
+    ImFont* font = addConfiguredFont(io.Fonts, config_, fontError);
     if (font) {
         io.FontDefault = font;
-    } else if (config_.uiFont == UiFont::ProggyClean) {
-        XV_WARN("could not load embedded ProggyClean UI font at {} px", kProggyCleanSize);
+        runtimeFonts_.push_back({config_.uiFont, config_.uiFontName, font});
+    } else {
+        XV_WARN("{}", fontError);
     }
 
     // The help and the log are read against the picture, so being unable to put
@@ -677,12 +783,53 @@ bool App::setupImGui() {
     const float scale = dpiScale * config_.uiScale;
 
     theme::apply(scale);
+    ImGui::GetStyle().FontSizeBase =
+        config_.uiFont == UiFont::ProggyClean ? kProggyCleanSize : config_.uiFontSize;
     ImGui::GetStyle().FontScaleMain = scale;
 
     if (!ImGui_ImplWin32_Init(window_)) {
         return false;
     }
     return ImGui_ImplDX11_Init(gpu_.device(), gpu_.context());
+}
+
+void App::applyUiScale() {
+    const float dpiScale = static_cast<float>(::GetDpiForWindow(window_)) / 96.0f;
+    const float scale = dpiScale * config_.uiScale;
+    theme::apply(scale);
+    ImGui::GetStyle().FontScaleMain = scale;
+}
+
+void App::applyPendingUiFont() {
+    if (!pendingUiFontReload_) {
+        return;
+    }
+    pendingUiFontReload_ = false;
+
+    ImGuiIO& io = ImGui::GetIO();
+    const auto cachedFont = std::find_if(
+        runtimeFonts_.begin(), runtimeFonts_.end(), [&](const RuntimeFont& entry) {
+            return entry.type == config_.uiFont && entry.name == config_.uiFontName;
+        });
+    ImFont* font = cachedFont == runtimeFonts_.end() ? nullptr : cachedFont->font;
+    if (!font) {
+        std::string error;
+        font = addConfiguredFont(io.Fonts, config_, error);
+        if (!font) {
+            XV_WARN("{}; using the embedded fallback font", error);
+            font = io.Fonts->AddFontDefaultVector();
+        }
+        if (font) {
+            runtimeFonts_.push_back({config_.uiFont, config_.uiFontName, font});
+        }
+    }
+    if (!font) {
+        XV_ERROR("could not build a replacement UI font");
+        return;
+    }
+    io.FontDefault = font;
+    ImGui::GetStyle().FontSizeBase =
+        config_.uiFont == UiFont::ProggyClean ? kProggyCleanSize : config_.uiFontSize;
 }
 
 void App::teardownImGui() {
@@ -793,6 +940,7 @@ int App::run(HINSTANCE instance, int showCommand) {
 
 void App::frame() {
     pumpTasks();
+    applyPendingUiFont();
 
     // The live grid takes Tab and the arrow keys for itself: Tab picks the camera
     // and the arrows point it. ImGui's keyboard navigation wants the same keys for
@@ -872,6 +1020,9 @@ void App::frame() {
     if (showHelpWindow_) {
         drawHelpWindow(*this, showHelpWindow_, helpTab_);
     }
+    if (configurationDialog_.open || configurationDialog_.openRequested) {
+        drawConfigurationDialog(*this);
+    }
 
     ImGui::Render();
 
@@ -939,6 +1090,9 @@ void App::drawMenuBar() {
     if (ImGui::BeginMenu("File")) {
         if (ImGui::MenuItem("Open recording...", "Ctrl+O")) {
             openRecordingDialog();
+        }
+        if (ImGui::MenuItem("Configuration...")) {
+            openConfigurationDialog();
         }
         ImGui::Separator();
         if (ImGui::MenuItem("Save configuration", "Ctrl+S")) {
@@ -1875,6 +2029,103 @@ void App::openRecordingsFolder() const {
     std::filesystem::create_directories(directory, ignored);
 
     ::ShellExecuteW(nullptr, L"open", directory.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
+void App::openConfigurationDialog() {
+    ConfigurationDialogState& state = configurationDialog_;
+    state.uiScale = config_.uiScale;
+    state.uiFontSize = config_.uiFontSize;
+    state.liveViewZoom = config_.liveViewZoom;
+    state.fontChoice = config_.uiFont == UiFont::ProggyVector
+                           ? 0
+                           : config_.uiFont == UiFont::ProggyClean ? 1 : 2;
+    state.fontSearch[0] = '\0';
+    state.windowsFonts = windowsFontFiles(state.fontCatalogError);
+    if (state.fontChoice == 2 &&
+        std::none_of(state.windowsFonts.begin(), state.windowsFonts.end(),
+                     [&](const WindowsFontOption& font) {
+                         return _stricmp(font.fileName.c_str(), config_.uiFontName.c_str()) == 0;
+                     })) {
+        state.windowsFonts.push_back({config_.uiFontName, config_.uiFontName});
+        std::sort(state.windowsFonts.begin(), state.windowsFonts.end(),
+                  [](const WindowsFontOption& left, const WindowsFontOption& right) {
+                      return left.displayName < right.displayName;
+                  });
+    }
+    std::snprintf(state.uiFontName.data(), state.uiFontName.size(), "%s",
+                  config_.uiFontName.c_str());
+    std::snprintf(state.recordingsDir.data(), state.recordingsDir.size(), "%s",
+                  config_.recordingsDir.c_str());
+    state.error.clear();
+    state.open = true;
+    state.openRequested = true;
+}
+
+bool App::applyConfigurationDialog() {
+    ConfigurationDialogState& state = configurationDialog_;
+    if (!std::isfinite(state.uiScale) || state.uiScale < 0.5f || state.uiScale > 2.0f) {
+        state.error = "UI scale must be between 0.5x and 2.0x.";
+        return false;
+    }
+    if (!std::isfinite(state.uiFontSize) || state.uiFontSize < 6.0f ||
+        state.uiFontSize > 48.0f) {
+        state.error = "Font size must be between 6 and 48 px.";
+        return false;
+    }
+    if (!std::isfinite(state.liveViewZoom) || state.liveViewZoom < 1.0f) {
+        state.error = "Live view zoom must be at least 1.0x.";
+        return false;
+    }
+    if (state.fontChoice < 0 || state.fontChoice > 2) {
+        state.error = "Choose a valid UI font.";
+        return false;
+    }
+
+    const std::string windowsFontName(state.uiFontName.data());
+    if (state.fontChoice == 2 && windowsFontName.empty()) {
+        state.error = "Enter a Windows font file name.";
+        return false;
+    }
+
+    const float previousScale = config_.uiScale;
+    const float previousFontSize = config_.uiFontSize;
+    const float previousZoom = config_.liveViewZoom;
+    const UiFont previousFont = config_.uiFont;
+    const std::string previousFontName = config_.uiFontName;
+    const std::string previousRecordingsDir = config_.recordingsDir;
+    const UiFont selectedFont = state.fontChoice == 0
+                                    ? UiFont::ProggyVector
+                                    : state.fontChoice == 1 ? UiFont::ProggyClean : UiFont::Windows;
+    const std::string selectedFontName =
+        state.fontChoice == 0
+            ? "ProggyVector"
+            : state.fontChoice == 1 ? "ProggyClean" : std::string(state.uiFontName.data());
+    const bool fontChanged = config_.uiFont != selectedFont ||
+                             config_.uiFontName != selectedFontName ||
+                             config_.uiFontSize != state.uiFontSize;
+
+    config_.uiScale = state.uiScale;
+    config_.uiFontSize = state.uiFontSize;
+    config_.liveViewZoom = state.liveViewZoom;
+    config_.recordingsDir = state.recordingsDir.data();
+    config_.uiFont = selectedFont;
+    config_.uiFontName = selectedFontName;
+
+    if (!config_.save()) {
+        config_.uiScale = previousScale;
+        config_.uiFontSize = previousFontSize;
+        config_.liveViewZoom = previousZoom;
+        config_.uiFont = previousFont;
+        config_.uiFontName = previousFontName;
+        config_.recordingsDir = previousRecordingsDir;
+        state.error = "Could not save the configuration. See the application log for details.";
+        return false;
+    }
+
+    applyUiScale();
+    pendingUiFontReload_ = fontChanged;
+    state.error.clear();
+    return true;
 }
 
 void App::openRecordingDialog() {

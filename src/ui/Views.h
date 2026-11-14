@@ -15,6 +15,9 @@ void drawCamerasView(App& app);
 
 void drawCameraDiagnosticsWindow(App& app);
 
+// App-level preferences, persisted in config.json.
+void drawConfigurationDialog(App& app);
+
 // The live video grid.
 void drawGridView(App& app);
 

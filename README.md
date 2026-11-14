@@ -104,9 +104,9 @@ restored when the app starts. The
 arrow keys pan and tilt the selected camera, holding the movement for as long as
 the key is down, `R` starts or stops recording it, and `A` listens to it. Hold
 the right mouse button over live video to magnify it, then move the mouse while
-holding to pan around the image. The default is 2x; `live_view_zoom` in
-`%APPDATA%\XiaomiViewer\config.json` changes the factor, and `1.0` disables
-magnification. While the live grid is on screen these keys belong to the cameras,
+holding to pan around the image. The default is 2x; **File -> Configuration**
+changes the factor, and `1.0` disables magnification. While the live grid is on
+screen these keys belong to the cameras,
 so Tab does not walk the toolbar there the way it does on the other screens.
 `F11` goes fullscreen: the window covers the whole monitor, edge to edge, with
 no menu bar. What it shows is unchanged, so the grid stays a grid and a focused
@@ -225,7 +225,8 @@ other devices' replies did get through.
 
 `Record` on the pad, or `R`, writes the focused camera's stream to
 `Videos\XiaomiViewer\<camera> <date> <time>.mkv`. **Streams -> Open recordings
-folder** goes there, and `recordings_dir` in the configuration file moves it.
+folder** goes there, and **File -> Configuration** can choose a different
+recording folder.
 
 Nothing is re-encoded: the camera's own H.265 or H.264 access units are put into
 a Matroska container as they arrive, and its audio packets go into a second
@@ -335,18 +336,16 @@ the main one, so it stays above it instead of being buried by a click on the
 video, and it minimizes and restores along with it, without blocking anything
 underneath the way a dialog would.
 
-Settings and the log live under the **View** menu. Configuration is stored in
-`%APPDATA%\XiaomiViewer\config.json`, next to a log file that is worth reading
-first if a camera will not connect.
+Settings and the log live under the **View** menu. **File -> Configuration**
+opens the application preferences from any screen. It lets you set UI scale,
+choose a font and size, change live-view magnification, and choose the recording
+folder. Changes are saved to `%APPDATA%\XiaomiViewer\config.json`; font changes
+apply immediately. The configuration file is next to a log file that is worth
+reading first if a camera will not connect.
 
-The UI font can be selected in `config.json` with `"ui_font": "ProggyClean"`
-or `"ui_font": "ProggyVector"`. With no config file, or when `ui_font` is
-omitted, the default is ProggyVector at 15 px. Any other value is treated as a
-Windows Fonts filename: for example, `"ui_font": "Arial"` tries
-`C:\Windows\Fonts\Arial.ttf`, while `"Arial.ttf"` uses that exact filename.
-`"ui_font_size"` sets the size of ProggyVector and Windows system fonts, with
-15 px as the default. ProggyClean uses Dear ImGui's embedded 13-pixel bitmap
-font and keeps its fixed size.
+The Windows font selector uses installed TrueType fonts and displays their
+friendly names. ProggyClean uses Dear ImGui's embedded 13-pixel bitmap font and
+keeps its fixed size.
 
 ## Building
 

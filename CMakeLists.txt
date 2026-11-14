@@ -171,6 +171,7 @@ add_executable(XiaomiViewer WIN32
     src/render/D3D11Context.cpp
     src/render/VideoFrameTexture.cpp
     src/ui/CamerasView.cpp
+    src/ui/ConfigurationDialog.cpp
     src/ui/DiagnosticsView.cpp
     src/ui/GridView.cpp
     src/ui/HelpView.cpp
@@ -202,6 +203,7 @@ target_link_libraries(XiaomiViewer PRIVATE
     ffmpeg
     nlohmann_json
     crypt32        # DPAPI, for the account token at rest
+    advapi32       # Windows font catalog registry
     windowscodecs  # WIC, to decode the sign-in captcha
     ole32          # WASAPI, to play the camera's audio
     shlwapi

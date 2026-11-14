@@ -11,4 +11,7 @@ namespace xv {
 std::optional<std::filesystem::path> chooseRecordingFile(
     HWND owner, const std::filesystem::path& initialDirectory, std::string& error);
 
+std::optional<std::filesystem::path> chooseRecordingDirectory(
+    HWND owner, const std::filesystem::path& initialDirectory, std::string& error);
+
 } // namespace xv
