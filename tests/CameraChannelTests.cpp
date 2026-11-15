@@ -53,6 +53,13 @@ int main() {
     assert(sdRecordingChannel("isa.camera.cw501d", "") == 0);
     assert(sdRecordingChannel("isa.camera.cw501d", "1") == 10);
 
+    assert(isDualLens("mxiang.camera.c500os"));
+    xv::CameraConfig c500Dual;
+    c500Dual.model = "mxiang.camera.c500os";
+    assert(c500Dual.motorised());
+    c500Dual.channel = "1";
+    assert(!c500Dual.motorised());
+
     // The other spellings of the same board have to agree, or one config would
     // browse an empty catalogue while another worked.
     assert(sdRecordingChannel("chuangmi.camera.cw500", "1") == 10);

@@ -591,6 +591,12 @@ Home. `scripts/probe-dual-session.ps1` captures the raw interleaving, and
 `scripts/verify-lenses.ps1` checks both decoded tiles against the shared remote
 endpoint.
 
+The Xiaomi Smart Camera C500 Dual (`mxiang.camera.c500os`) is provisionally
+routed through this same path. Its MIoT `Camera Index` entries describe Alexa
+and Google streaming services; they do not establish how local CS2 selects its
+video feeds. The dual-feed media headers still need hardware acceptance on this
+model.
+
 Dual-lens extends to the card, but not at the channel number the live stream
 uses. Both a MISS playback (`0x10D`) and an RDT file fetch (command 1) look the
 timestamp up in the requested *storage* channel's index, and the two numbering

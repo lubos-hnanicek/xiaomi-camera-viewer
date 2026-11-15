@@ -128,7 +128,8 @@ bool isDualLens(const std::string& model) {
     return model.find(".hlmax") != std::string::npos ||
            model.find("cw500") != std::string::npos ||
            model.find("500dh") != std::string::npos ||
-           model.find("cw501d") != std::string::npos;
+           model.find("cw501d") != std::string::npos ||
+           model == "mxiang.camera.c500os";
 }
 
 uint32_t sdRecordingChannel(const std::string& model, const std::string& channel) {
