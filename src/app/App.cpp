@@ -4,6 +4,7 @@
 
 #include <dwmapi.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <wincodec.h>
 #include <windowsx.h>
 #include <winreg.h>
@@ -48,6 +49,8 @@ constexpr int kDefaultHeight = 900;
 // window somewhere with no way to drag it back.
 constexpr double kMinVisibleFraction = 0.5;
 
+std::vector<WindowsFontOption> windowsFontFiles(std::string& error);
+
 ImFont* addConfiguredFont(ImFontAtlas* atlas, const AppConfig& config, std::string& error) {
     if (config.uiFont == UiFont::ProggyClean) {
         return atlas->AddFontDefaultBitmap();
@@ -68,18 +71,33 @@ ImFont* addConfiguredFont(ImFontAtlas* atlas, const AppConfig& config, std::stri
         }
     } else {
         fontLabel = config.uiFontName;
-        char windowsDirectory[MAX_PATH]{};
-        const UINT windowsDirectoryLength =
-            ::GetWindowsDirectoryA(windowsDirectory, ARRAYSIZE(windowsDirectory));
-        if (windowsDirectoryLength > 0 && windowsDirectoryLength < ARRAYSIZE(windowsDirectory)) {
-            const std::string& value = config.uiFontName;
-            std::filesystem::path fontFileName(std::u8string(
-                reinterpret_cast<const char8_t*>(value.data()), value.size()));
-            fontFileName = fontFileName.filename();
-            if (fontFileName.extension().empty()) {
-                fontFileName += ".ttf";
+        const std::vector<WindowsFontOption> fonts = windowsFontFiles(error);
+        if (!error.empty()) {
+            return nullptr;
+        }
+        const auto font =
+            std::find_if(fonts.begin(), fonts.end(), [&](const WindowsFontOption& option) {
+                return _stricmp(option.fileName.c_str(), config.uiFontName.c_str()) == 0;
+            });
+        if (font != fonts.end()) {
+            fontPath = std::filesystem::path(font->filePath);
+        }
+
+        if (fontPath.empty()) {
+            char windowsDirectory[MAX_PATH]{};
+            const UINT windowsDirectoryLength =
+                ::GetWindowsDirectoryA(windowsDirectory, ARRAYSIZE(windowsDirectory));
+            if (windowsDirectoryLength > 0 &&
+                windowsDirectoryLength < ARRAYSIZE(windowsDirectory)) {
+                const std::string& value = config.uiFontName;
+                std::filesystem::path fontFileName(std::u8string(
+                    reinterpret_cast<const char8_t*>(value.data()), value.size()));
+                fontFileName = fontFileName.filename();
+                if (fontFileName.extension().empty()) {
+                    fontFileName += ".ttf";
+                }
+                fontPath = std::filesystem::path(windowsDirectory) / "Fonts" / fontFileName;
             }
-            fontPath = std::filesystem::path(windowsDirectory) / "Fonts" / fontFileName;
         }
     }
 
@@ -119,74 +137,133 @@ std::string utf8FromWide(std::wstring_view value) {
 std::vector<WindowsFontOption> windowsFontFiles(std::string& error) {
     constexpr wchar_t kFontRegistryKey[] =
         L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts";
-    HKEY key = nullptr;
-    const LSTATUS openResult =
-        ::RegOpenKeyExW(HKEY_LOCAL_MACHINE, kFontRegistryKey, 0, KEY_READ | KEY_WOW64_64KEY,
-                        &key);
-    if (openResult != ERROR_SUCCESS) {
-        error = std::format("could not enumerate Windows fonts (error {})", openResult);
-        return {};
-    }
-
-    DWORD maxNameLength = 0;
-    DWORD maxDataLength = 0;
-    const LSTATUS queryResult = ::RegQueryInfoKeyW(
-        key, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &maxNameLength,
-        &maxDataLength, nullptr, nullptr);
-    if (queryResult != ERROR_SUCCESS) {
-        ::RegCloseKey(key);
-        error = std::format("could not read the Windows font catalog (error {})", queryResult);
-        return {};
-    }
-
-    std::vector<wchar_t> valueName(static_cast<size_t>(maxNameLength) + 1);
-    std::vector<wchar_t> valueData(static_cast<size_t>(maxDataLength) / sizeof(wchar_t) + 1);
     std::vector<WindowsFontOption> fonts;
-    for (DWORD index = 0;; ++index) {
-        DWORD nameLength = maxNameLength + 1;
-        DWORD dataLength = static_cast<DWORD>(valueData.size() * sizeof(wchar_t));
-        DWORD type = 0;
-        std::fill(valueData.begin(), valueData.end(), L'\0');
-        const LSTATUS result =
-            ::RegEnumValueW(key, index, valueName.data(), &nameLength, nullptr, &type,
-                            reinterpret_cast<BYTE*>(valueData.data()), &dataLength);
-        if (result == ERROR_NO_MORE_ITEMS) {
-            break;
+    for (int source = 0; source < 2; ++source) {
+        const bool perUser = source == 1;
+        const HKEY root = perUser ? HKEY_CURRENT_USER : HKEY_LOCAL_MACHINE;
+        HKEY key = nullptr;
+        const LSTATUS openResult =
+            ::RegOpenKeyExW(root, kFontRegistryKey, 0, KEY_READ | KEY_WOW64_64KEY, &key);
+        if (perUser &&
+            (openResult == ERROR_FILE_NOT_FOUND || openResult == ERROR_PATH_NOT_FOUND)) {
+            continue;
         }
-        if (result != ERROR_SUCCESS) {
-            ::RegCloseKey(key);
-            error = std::format("could not read the Windows font catalog (error {})", result);
+        if (openResult != ERROR_SUCCESS) {
+            error = std::format("could not enumerate {} Windows fonts (error {})",
+                                perUser ? "current-user" : "system", openResult);
             return {};
         }
-        if ((type != REG_SZ && type != REG_EXPAND_SZ) || valueData.empty()) {
-            continue;
+
+        DWORD maxNameLength = 0;
+        DWORD maxDataLength = 0;
+        const LSTATUS queryResult = ::RegQueryInfoKeyW(
+            key, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &maxNameLength,
+            &maxDataLength, nullptr, nullptr);
+        if (queryResult != ERROR_SUCCESS) {
+            ::RegCloseKey(key);
+            error = std::format("could not read the Windows font catalog (error {})", queryResult);
+            return {};
         }
 
-        const std::wstring filePath(valueData.data());
-        const std::filesystem::path fontPath(filePath);
-        if (_wcsicmp(fontPath.extension().c_str(), L".ttf") != 0) {
-            continue;
-        }
+        std::vector<wchar_t> valueName(static_cast<size_t>(maxNameLength) + 1);
+        std::vector<wchar_t> valueData(static_cast<size_t>(maxDataLength) / sizeof(wchar_t) + 1);
+        for (DWORD index = 0;; ++index) {
+            DWORD nameLength = maxNameLength + 1;
+            DWORD dataLength = static_cast<DWORD>(valueData.size() * sizeof(wchar_t));
+            DWORD type = 0;
+            std::fill(valueData.begin(), valueData.end(), L'\0');
+            const LSTATUS result =
+                ::RegEnumValueW(key, index, valueName.data(), &nameLength, nullptr, &type,
+                                reinterpret_cast<BYTE*>(valueData.data()), &dataLength);
+            if (result == ERROR_NO_MORE_ITEMS) {
+                break;
+            }
+            if (result != ERROR_SUCCESS) {
+                ::RegCloseKey(key);
+                error = std::format("could not read the Windows font catalog (error {})", result);
+                return {};
+            }
+            if ((type != REG_SZ && type != REG_EXPAND_SZ) || valueData.empty()) {
+                continue;
+            }
 
-        std::wstring displayName(valueName.data(), nameLength);
-        constexpr std::wstring_view kTrueTypeSuffix = L" (TrueType)";
-        constexpr std::wstring_view kOpenTypeSuffix = L" (OpenType)";
-        if (displayName.ends_with(kTrueTypeSuffix)) {
-            displayName.resize(displayName.size() - kTrueTypeSuffix.size());
-        } else if (displayName.ends_with(kOpenTypeSuffix)) {
-            displayName.resize(displayName.size() - kOpenTypeSuffix.size());
-        }
+            std::wstring registeredPath(valueData.data());
+            if (type == REG_EXPAND_SZ) {
+                const DWORD expandedLength =
+                    ::ExpandEnvironmentStringsW(registeredPath.c_str(), nullptr, 0);
+                if (expandedLength == 0) {
+                    ::RegCloseKey(key);
+                    error = std::format("could not expand a Windows font path (error {})",
+                                        ::GetLastError());
+                    return {};
+                }
+                std::wstring expandedPath(expandedLength, L'\0');
+                const DWORD written = ::ExpandEnvironmentStringsW(
+                    registeredPath.c_str(), expandedPath.data(), expandedLength);
+                if (written == 0 || written > expandedLength) {
+                    ::RegCloseKey(key);
+                    error = std::format("could not expand a Windows font path (error {})",
+                                        ::GetLastError());
+                    return {};
+                }
+                expandedPath.resize(written - 1);
+                registeredPath = std::move(expandedPath);
+            }
 
-        const std::string fileName = utf8FromWide(fontPath.stem().wstring());
-        const std::string friendlyName = utf8FromWide(displayName);
-        if (!fileName.empty() && !friendlyName.empty() &&
-            std::none_of(fonts.begin(), fonts.end(), [&](const WindowsFontOption& font) {
-                return _stricmp(font.fileName.c_str(), fileName.c_str()) == 0;
-            })) {
-            fonts.push_back({friendlyName, fileName});
+            std::filesystem::path fontPath(registeredPath);
+            if (fontPath.is_relative()) {
+                if (perUser) {
+                    PWSTR localAppData = nullptr;
+                    const HRESULT result = ::SHGetKnownFolderPath(
+                        FOLDERID_LocalAppData, 0, nullptr, &localAppData);
+                    if (FAILED(result)) {
+                        ::RegCloseKey(key);
+                        error = std::format(
+                            "could not locate the per-user Windows Fonts directory (error {})",
+                            static_cast<unsigned long>(result));
+                        return {};
+                    }
+                    fontPath = std::filesystem::path(localAppData) / L"Microsoft" / L"Windows" /
+                               L"Fonts" / fontPath;
+                    ::CoTaskMemFree(localAppData);
+                } else {
+                    wchar_t windowsDirectory[MAX_PATH]{};
+                    const UINT length =
+                        ::GetWindowsDirectoryW(windowsDirectory, ARRAYSIZE(windowsDirectory));
+                    if (length == 0 || length >= ARRAYSIZE(windowsDirectory)) {
+                        ::RegCloseKey(key);
+                        error = std::format(
+                            "could not locate the Windows Fonts directory (error {})",
+                            ::GetLastError());
+                        return {};
+                    }
+                    fontPath = std::filesystem::path(windowsDirectory) / L"Fonts" / fontPath;
+                }
+            }
+            if (_wcsicmp(fontPath.extension().c_str(), L".ttf") != 0) {
+                continue;
+            }
+
+            std::wstring displayName(valueName.data(), nameLength);
+            constexpr std::wstring_view kTrueTypeSuffix = L" (TrueType)";
+            constexpr std::wstring_view kOpenTypeSuffix = L" (OpenType)";
+            if (displayName.ends_with(kTrueTypeSuffix)) {
+                displayName.resize(displayName.size() - kTrueTypeSuffix.size());
+            } else if (displayName.ends_with(kOpenTypeSuffix)) {
+                displayName.resize(displayName.size() - kOpenTypeSuffix.size());
+            }
+
+            const std::string fileName = utf8FromWide(fontPath.stem().wstring());
+            const std::string friendlyName = utf8FromWide(displayName);
+            if (!fileName.empty() && !friendlyName.empty() &&
+                std::none_of(fonts.begin(), fonts.end(), [&](const WindowsFontOption& font) {
+                    return _stricmp(font.fileName.c_str(), fileName.c_str()) == 0;
+                })) {
+                fonts.push_back({friendlyName, fileName, fontPath.wstring()});
+            }
         }
+        ::RegCloseKey(key);
     }
-    ::RegCloseKey(key);
 
     std::sort(fonts.begin(), fonts.end(),
               [](const WindowsFontOption& left, const WindowsFontOption& right) {
@@ -2046,7 +2123,7 @@ void App::openConfigurationDialog() {
                      [&](const WindowsFontOption& font) {
                          return _stricmp(font.fileName.c_str(), config_.uiFontName.c_str()) == 0;
                      })) {
-        state.windowsFonts.push_back({config_.uiFontName, config_.uiFontName});
+        state.windowsFonts.push_back({config_.uiFontName, config_.uiFontName, {}});
         std::sort(state.windowsFonts.begin(), state.windowsFonts.end(),
                   [](const WindowsFontOption& left, const WindowsFontOption& right) {
                       return left.displayName < right.displayName;

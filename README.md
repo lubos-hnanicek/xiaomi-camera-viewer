@@ -343,9 +343,9 @@ folder. Changes are saved to `%APPDATA%\XiaomiViewer\config.json`; font changes
 apply immediately. The configuration file is next to a log file that is worth
 reading first if a camera will not connect.
 
-The Windows font selector uses installed TrueType fonts and displays their
-friendly names. ProggyClean uses Dear ImGui's embedded 13-pixel bitmap font and
-keeps its fixed size.
+The Windows font selector uses installed system and per-user TrueType fonts and
+displays their friendly names. ProggyClean uses Dear ImGui's embedded 13-pixel
+bitmap font and keeps its fixed size.
 
 ## Building
 

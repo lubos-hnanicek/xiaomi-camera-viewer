@@ -97,6 +97,7 @@ struct DiscoveredDevice {
 struct WindowsFontOption {
     std::string displayName;
     std::string fileName;
+    std::wstring filePath;
 };
 
 struct ConfigurationDialogState {
