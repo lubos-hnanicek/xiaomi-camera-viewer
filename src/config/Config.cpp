@@ -187,7 +187,10 @@ bool hasMotor(const std::string& model) {
            isCw300(model) ||
            isC400(model) ||
            isC500(model) ||
-           isCw700s(model);
+           isCw700s(model) ||
+           // Xiaomi identifies this as the motorized C302, but its MISS PTZ
+           // command has not yet been verified against hardware.
+           model == "xiaomi.camera.c302o";
 }
 
 bool CameraConfig::motorised() const {

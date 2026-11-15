@@ -666,6 +666,10 @@ for working out a model that does not respond to the payload above.
   layout come from public sources, but its stream, audio, quality and motor
   controls have not been exercised against hardware here. The viewer exposes
   its hybrid-zoom camera as one tile and cannot select the telephoto sensor yet.
+- **C302 pan and tilt are provisional.** Xiaomi identifies
+  `xiaomi.camera.c302o` as the C302, whose product specifications describe a
+  motorized pan axis. The viewer exposes the existing MISS `0x112` controls for
+  it, but that command has not been verified against C302 hardware.
 - **SD card playback cannot pause, and cannot seek inside a clip.** The camera
   streams a recording in real time. The bar under the picture and the arrow keys
   jump to another clip's start; playing from a moment part-way through a clip

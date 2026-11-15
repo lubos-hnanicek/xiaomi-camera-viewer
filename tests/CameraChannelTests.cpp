@@ -37,6 +37,11 @@ int main() {
     assert(hasMotor("mxiang.camera.c500en"));
     assert(!hasMotor("xiaomi.camera.unverified"));
 
+    assert(hasMotor("xiaomi.camera.c302o"));
+    xv::CameraConfig c302;
+    c302.model = "xiaomi.camera.c302o";
+    assert(c302.motorised());
+
     // The CW500 records its two lenses as 0 and 10. Channel 1 is a slot the
     // firmware never allocates.
     assert(isDualLens("isa.camera.500dh"));
