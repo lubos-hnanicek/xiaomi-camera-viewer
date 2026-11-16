@@ -214,13 +214,13 @@ std::vector<WindowsFontOption> windowsFontFiles(std::string& error) {
             if (fontPath.is_relative()) {
                 if (perUser) {
                     PWSTR localAppData = nullptr;
-                    const HRESULT result = ::SHGetKnownFolderPath(
+                    const HRESULT folderPathResult = ::SHGetKnownFolderPath(
                         FOLDERID_LocalAppData, 0, nullptr, &localAppData);
-                    if (FAILED(result)) {
+                    if (FAILED(folderPathResult)) {
                         ::RegCloseKey(key);
                         error = std::format(
                             "could not locate the per-user Windows Fonts directory (error {})",
-                            static_cast<unsigned long>(result));
+                            static_cast<unsigned long>(folderPathResult));
                         return {};
                     }
                     fontPath = std::filesystem::path(localAppData) / L"Microsoft" / L"Windows" /
