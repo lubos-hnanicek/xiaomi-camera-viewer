@@ -155,12 +155,20 @@ bool isC400(const std::string& model) {
     return model == "chuangmi.camera.039a04";
 }
 
+bool isC301(const std::string& model) {
+    return model == "mxiang.camera.c301";
+}
+
+bool isC701(const std::string& model) {
+    return model == "chuangmi.camera.079ae2";
+}
+
 bool supportsSdPlayback(const std::string& model) {
     return model.find("hlc8a") != std::string::npos ||
            model.find("500dh") != std::string::npos ||
            model.find("cw501d") != std::string::npos ||
            model == "mxiang.camera.moc006" ||
-           isC400(model);
+           isC400(model) || isC301(model) || isC701(model);
 }
 
 bool isC500(const std::string& model) {

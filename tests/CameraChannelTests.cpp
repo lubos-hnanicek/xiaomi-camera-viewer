@@ -12,6 +12,8 @@
 #include "config/Config.h"
 
 int main() {
+    using xv::isC301;
+    using xv::isC701;
     using xv::isDualLens;
     using xv::hasMotor;
     using xv::isC500;
@@ -23,6 +25,29 @@ int main() {
     assert(sdRecordingChannel("isa.camera.hlc8a", "0") == 0);
     assert(sdRecordingChannel("isa.camera.hlc8a", "1") == 0);
     assert(sdRecordingChannel("mxiang.camera.moc001", "1") == 0);
+
+    // The C301 is single-lens and files everything under storage channel 0,
+    // which is the channel its diagnostic catalogue came back on.
+    assert(isC301("mxiang.camera.c301"));
+    assert(!isC301("mxiang.camera.c302"));
+    assert(!isDualLens("mxiang.camera.c301"));
+    assert(sdRecordingChannel("mxiang.camera.c301", "") == 0);
+    assert(sdRecordingChannel("mxiang.camera.c301", "1") == 0);
+    assert(supportsSdPlayback("mxiang.camera.c301"));
+    // The gate is still a list: a similarly named model must not inherit it.
+    assert(!supportsSdPlayback("mxiang.camera.c300"));
+    assert(!supportsSdPlayback("mxiang.camera.c302"));
+
+    // The C701 is a different vendor family and a 4K sensor, but the same
+    // single-lens channel-0 storage layout. It is named by its own id so the
+    // C400's chuangmi id cannot stand in for it.
+    assert(isC701("chuangmi.camera.079ae2"));
+    assert(!isC701("chuangmi.camera.039a04"));
+    assert(!isDualLens("chuangmi.camera.079ae2"));
+    assert(sdRecordingChannel("chuangmi.camera.079ae2", "") == 0);
+    assert(sdRecordingChannel("chuangmi.camera.079ae2", "1") == 0);
+    assert(supportsSdPlayback("chuangmi.camera.079ae2"));
+    assert(!supportsSdPlayback("chuangmi.camera.079ae1"));
 
     // The indoor C400 uses a different cloud model id from the older CW400,
     // but remains a motorized single-lens camera.

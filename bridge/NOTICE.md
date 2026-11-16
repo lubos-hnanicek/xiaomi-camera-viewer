@@ -68,6 +68,25 @@ Upstream revision: `v1.9.14` (commit `b5948cfb25404cc5cb37b166ecaa2dca20b11d4b`)
   that default without an override. This is external evidence rather than a
   local hardware measurement, so the numbered quality override and probe
   scripts remain the fallback.
+- C301 handling recognises `mxiang.camera.c301`. Measured on one camera: the
+  catalogue arrives over RDT transport channel 1 in the same four-byte header
+  and eight-byte records as the CW400 family (3,971 clips in 31,776 bytes, no
+  duplicate starts, only the 0x100 event bit above the duration), and the
+  request's storage channel is 0. Storage channel 10 answers empty because this
+  single-lens model does not record there. MISS `0x10D` with the exact
+  catalogue start answers `filefound` and streams at real-time rate. RDT
+  command 1 returns the original fragmented MP4 (HEVC 2304x1296, Opus 48 kHz
+  mono) at about 1.5 MB/s. Its final `mdat` consistently declares four bytes
+  more than the transfer carries, although the files decode completely; C701
+  has no such shortfall.
+- C701 handling recognises `chuangmi.camera.079ae2`. Measured on one camera:
+  the same index layout on storage channel 0 over RDT transport channel 1
+  (10,460 clips, seven days continuous, 60-second files), the same `0x10D`
+  answer, and the same RDT command 1 file path. Its files are 3840x2160 HEVC
+  with Opus, 2.5-11 MB for a minute, and transfer at 2.4-3.7 MB/s with no
+  final-box shortfall. It is a separate id rather than a `chuangmi` prefix
+  match because `chuangmi.camera.039a04` is the C400 and the prefix is not a
+  protocol guarantee.
 - Provisional CW700S handling recognises `isa.camera.700sa`, which go2rtc's
   [camera list](https://github.com/AlexxIT/go2rtc/issues/1982) identifies as a
   CS2 model. It retains profile 2 explicitly and remains a single stream:
