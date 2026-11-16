@@ -257,9 +257,10 @@ void drawRecordingAndSound() {
     bullet("The second lens is fetched clip by clip rather than streamed, so it pauses a moment "
            "before each minute while the file arrives. That is deliberate: the camera will "
            "stream that picture only intermittently, while it hands the file over every time.");
-        bullet("The CW400, C400, CW500 and global CW300 are offered. The requests were recovered from "
-            "published firmware for the CW400 and CW500; C400 follows the same playback path in "
-            "this build, but its hardware coverage is model-specific. A camera that reads the "
+        bullet("The CW400, C400, C301, C701, CW500 and global CW300 are offered. The requests were recovered from "
+            "published firmware for the CW400 and CW500. C400 follows the same playback path in this "
+            "build but its hardware coverage is model-specific; C301 and C701 were measured against real "
+            "cameras. A camera that reads the "
             "requests differently says nothing at all rather than refusing, so the rest are "
             "greyed out instead of being left blank.");
     aside("Minutes the camera marked as containing a detection are labelled event. "
@@ -425,7 +426,7 @@ void drawAbout() {
     ImGui::Dummy(ImVec2(0, 10));
 
     paragraph("A native Windows viewer for Xiaomi CW400 and CW500 cameras, with provisional "
-              "support for the CW300 and CW700S. One executable, no Docker, no WSL, no "
+              "support for the CW300, C301, C701 and CW700S. One executable, no Docker, no WSL, no "
               "browser.");
 
     ImGui::SeparatorText("Privacy");

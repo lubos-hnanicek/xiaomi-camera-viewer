@@ -1,8 +1,8 @@
 # Xiaomi Camera Viewer
 
 A native Windows application for watching and controlling Xiaomi CW400 and CW500
-cameras, with provisional support for the CW300 and CW700S. One executable, no
-Docker, no WSL, no browser.
+cameras, with provisional support for the CW300, C301, C701 and CW700S. One
+executable, no Docker, no WSL, no browser.
 
 Video travels straight from the camera to your PC over the local network.
 Xiaomi's cloud is used only to sign in, list your devices, exchange the
@@ -38,7 +38,7 @@ attached separately to each release for debugging.
   image flip, motion detection and sensitivity, tracking, fill light, siren,
   indicator LED, recording mode and SD card status
 - Playback of the footage on a camera's own SD card, browsed by day, hour and
-  clip, on the CW400, C400, global CW300 and both lenses of the CW500
+  clip, on the CW400, C400, C301, C701, global CW300 and both lenses of the CW500
 - Both lenses of a dual-lens CW500 as independent tiles over one camera session
 - Automatic reconnection with backoff when a camera drops the session
 - Sign-in handles captchas and two-step verification; the resulting token is
@@ -300,16 +300,34 @@ rules rather than this program's:
   doing rather than a preference: it will stream that picture only
   intermittently, while it hands the file over every time.
 
-The CW400, C400 (`chuangmi.camera.039a04`), CW500 and global/EU CW300
-(`mxiang.camera.moc006`) are offered. The requests were recovered from
-IMILAB's published firmware for the CW400 and CW500 boards; C400 follows the
-same playback path in this build, but its hardware coverage is model-specific.
-A model that reads the requests differently does not fail politely: it says
-nothing at all. The CW300 was added after
+The CW400, C400 (`chuangmi.camera.039a04`), C301 (`mxiang.camera.c301`),
+C701 (`chuangmi.camera.079ae2`), CW500 and global/EU CW300
+(`mxiang.camera.moc006`) are offered. The requests
+were recovered from IMILAB's published firmware for the CW400 and CW500 boards;
+C400 follows the same playback path in this build, but its hardware coverage is
+model-specific. A model that reads the requests differently does not fail
+politely: it says nothing at all. The CW300 was added after
 `scripts/probe-sdcard.ps1` showed a real one answering the same requests: a
 catalogue of about ten thousand clips in under a second, and `filefound`
 followed by frames at real-time rate. Other cameras are listed but greyed out
 rather than being allowed to sit on an empty screen.
+
+The C301 and C701 needed no protocol change at all, only their model ids. A
+real C301 returned a 3,971-clip index in the same 8-byte records, answered
+`0x10D` with `filefound` for an exact clip start, and streamed that clip at
+1.05x real time. Its original files download over RDT at 1.1–2.3 MB/s, which
+for the 4–8 MB minutes it records is 10–23x real time: a minute of footage
+arrives in three to six seconds. A C701 answered identically with 10,460 clips
+(seven days of continuous recording, 60-second files) and 4K files of 2.5–11 MB.
+Its transfer reaches 2.4–3.7 MB/s, 20–77x real time, even though its 3840x2160
+HEVC picture is larger; a transfer still finishes in one to three seconds.
+Both send HEVC with Opus audio, and every downloaded file decoded end to end
+without an error.
+
+C301 files are consistently four bytes short of the size their final `mdat`
+declares. FFmpeg decodes them completely, so the missing bytes appear to be
+padding rather than lost footage; C701 files have no such shortfall.
+`scripts/probe-sdcard.ps1 -Mode download` is the measurement for both.
 
 ## Window and configuration
 
@@ -670,12 +688,19 @@ for working out a model that does not respond to the payload above.
   streams a recording in real time. The bar under the picture and the arrow keys
   jump to another clip's start; playing from a moment part-way through a clip
   still means playing that clip from its beginning.
-- **SD card playback is limited to the CW400, C400, the CW500 and the global
-  CW300.** The requests came from the CW400 and CW500 boards' firmware, and the
-  CW300 was confirmed by running them against real hardware. C400
-  (`chuangmi.camera.039a04`) is included by the current build, but its hardware
-  coverage is model-specific. The China CW300 (`moc001`) and other models are
-  greyed out in the menu rather than offered and left blank.
+- **SD card playback is limited to the CW400, C400, C301, C701, the CW500 and
+  the global CW300.** The requests came from the CW400 and CW500 boards'
+  firmware, and the CW300, C301 and C701 were confirmed by running them against
+  real hardware. C400 (`chuangmi.camera.039a04`) is included by the current
+  build, but its hardware coverage is model-specific. The China CW300
+  (`moc001`) and other models are greyed out in the menu rather than offered
+  and left blank.
+- **C301 downloads may be limited by the camera rather than the link.** Its RDT
+  transfer measured 1.1–2.3 MB/s on the one local network tested, well below
+  what that link can carry. Whether the cap is firmware, SD-card read speed or
+  RDT pacing has not been established. A C701 reached 2.4–3.7 MB/s on the same
+  link, which makes a C301-specific limit likely. Playback is streamed at real
+  time and cannot go faster.
 - **A CW500's second lens plays from downloaded files, so it is not instant.**
   The camera streams that picture only intermittently; it sends the file every
   time. Each minute is fetched before it plays, and the next is fetched while

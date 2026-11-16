@@ -64,6 +64,18 @@ struct CameraConfig {
 // Current indoor C400 model (chuangmi.camera.039a04).
 [[nodiscard]] bool isC400(const std::string& model);
 
+// Xiaomi Smart Camera C301 (mxiang.camera.c301). A single-lens model whose
+// storage channel is 0 and whose index is the same flat table the other
+// supported models send. Kept as one explicit id rather than a substring: the
+// C300/C301/C302 family shares a prefix but not necessarily a firmware.
+[[nodiscard]] bool isC301(const std::string& model);
+
+// Xiaomi Smart Camera C701 (chuangmi.camera.079ae2). Also single-lens and
+// channel 0, but a different cloud model family from the C301 and a 4K sensor,
+// so it is listed separately rather than matched by a chuangmi prefix that also
+// covers the C400.
+[[nodiscard]] bool isC701(const std::string& model);
+
 // Models with a verified SD-card catalogue and playback path.
 [[nodiscard]] bool supportsSdPlayback(const std::string& model);
 
