@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 
@@ -49,7 +50,7 @@ func (d *Device) IsCamera() bool {
 	return strings.Contains(d.Model, ".camera.") || strings.Contains(d.Model, ".cateye.")
 }
 
-// Devices returns every camera on the account.
+// Devices returns cameras owned by the account and shared with it.
 func (a *Account) Devices() ([]*Device, error) {
 	res, err := a.request("/v2/home/device_list_page", "{}")
 	if err != nil {
@@ -63,13 +64,91 @@ func (a *Account) Devices() ([]*Device, error) {
 		return nil, err
 	}
 
-	cameras := make([]*Device, 0, len(v.List))
-	for _, d := range v.List {
-		if d.IsCamera() {
-			cameras = append(cameras, d)
+	shared, err := a.sharedDevices()
+	if err != nil {
+		log.Printf("xiaomi: shared-camera discovery failed; returning owned cameras only: %v", err)
+	}
+	return cameraDevices(v.List, shared), nil
+}
+
+type sharedHome struct {
+	HomeID    json.Number `json:"home_id"`
+	HomeOwner json.Number `json:"home_owner"`
+}
+
+type sharedHomesResponse struct {
+	Share struct {
+		ShareFamily []sharedHome `json:"share_family"`
+	} `json:"share"`
+}
+
+type sharedHomeDevicesResponse struct {
+	DeviceInfo []*Device `json:"device_info"`
+}
+
+func (a *Account) sharedDevices() ([]*Device, error) {
+	res, err := a.request("/v2/user/get_device_cnt", `{"fetch_own":false,"fetch_share":true}`)
+	if err != nil {
+		return nil, fmt.Errorf("list shared homes: %w", err)
+	}
+
+	var homes sharedHomesResponse
+	if err = json.Unmarshal(res, &homes); err != nil {
+		return nil, fmt.Errorf("decode shared homes: %w", err)
+	}
+
+	var devices []*Device
+	for _, home := range homes.Share.ShareFamily {
+		params, err := json.Marshal(struct {
+			HomeOwner        json.Number `json:"home_owner"`
+			HomeID           json.Number `json:"home_id"`
+			Limit            int         `json:"limit"`
+			GetSplitDevice   bool        `json:"get_split_device"`
+			SupportSmartHome bool        `json:"support_smart_home"`
+		}{
+			HomeOwner:        home.HomeOwner,
+			HomeID:           home.HomeID,
+			Limit:            200,
+			GetSplitDevice:   true,
+			SupportSmartHome: true,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("encode shared home request: %w", err)
+		}
+
+		res, err = a.request("/v2/home/home_device_list", string(params))
+		if err != nil {
+			return nil, fmt.Errorf("list shared-home devices: %w", err)
+		}
+
+		var homeDevices sharedHomeDevicesResponse
+		if err = json.Unmarshal(res, &homeDevices); err != nil {
+			return nil, fmt.Errorf("decode shared-home devices: %w", err)
+		}
+		devices = append(devices, homeDevices.DeviceInfo...)
+	}
+
+	return devices, nil
+}
+
+func cameraDevices(deviceGroups ...[]*Device) []*Device {
+	var cameras []*Device
+	seen := make(map[string]struct{})
+	for _, group := range deviceGroups {
+		for _, device := range group {
+			if device == nil || !device.IsCamera() {
+				continue
+			}
+			if device.Did != "" {
+				if _, exists := seen[device.Did]; exists {
+					continue
+				}
+				seen[device.Did] = struct{}{}
+			}
+			cameras = append(cameras, device)
 		}
 	}
-	return cameras, nil
+	return cameras
 }
 
 // MissSession is everything needed to open a peer-to-peer media session: the

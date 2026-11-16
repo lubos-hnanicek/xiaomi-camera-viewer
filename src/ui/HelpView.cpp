@@ -69,10 +69,10 @@ void drawGettingStarted() {
     paragraph("Sign in with your Mi account and pick the region your cameras are in. It has to be "
               "the region the Mi Home app uses: the wrong one gives an empty device list rather "
               "than an error, because Xiaomi keeps accounts in per-region shards.");
-    paragraph("Then open Cameras, press Refresh from account, and add what you want to watch. A "
-              "dual-lens CW500 offers each of its lenses separately. The grid starts streaming as "
-              "soon as a camera is added, and picks it up again by itself every time the app "
-              "starts.");
+    paragraph("Then open Cameras, press Refresh from account, and add what you want to watch. "
+              "This includes cameras shared with the signed-in Mi account. A dual-lens CW500 "
+              "offers each of its lenses separately. The grid starts streaming as soon as a "
+              "camera is added, and picks it up again by itself every time the app starts.");
 
     ImGui::SeparatorText("Where the picture comes from");
 

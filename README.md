@@ -93,8 +93,9 @@ region must match the one the Mi Home app uses; the wrong one produces an empty
 device list rather than an error, because Xiaomi shards accounts by region.
 
 Then open **Cameras**, press **Refresh from account**, and add the cameras you
-want. A dual-lens CW500 offers both lenses separately. The grid starts streaming
-as soon as a camera is added.
+want. This includes cameras shared with the signed-in Mi account. A dual-lens
+CW500 offers both lenses separately. The grid starts streaming as soon as a
+camera is added.
 
 Click a tile to select it, or walk through them with `Tab` and `Shift+Tab`.
 Double-click a tile, or press `F`, to focus a single camera; `Esc` goes back. The

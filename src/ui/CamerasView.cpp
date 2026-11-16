@@ -181,7 +181,7 @@ void drawConfiguredCameras(App& app) {
 }
 
 void drawDiscoveredDevices(App& app) {
-    ImGui::SeparatorText("Found on your account");
+    ImGui::SeparatorText("Found for your account");
 
     if (app.devicesBusy()) {
         ImGui::TextColored(theme::kPending, "Asking Xiaomi for your devices...");
