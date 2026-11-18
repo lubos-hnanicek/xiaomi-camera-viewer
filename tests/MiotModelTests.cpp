@@ -72,6 +72,24 @@ int main() {
     const auto& c500a = cameraProperties("xiaomi.camera.c500a");
     assert(property(c500a, "ai-detection-sensitivity")->piid == 28);
 
+    const auto& cw501d = cameraProperties("isa.camera.cw501d");
+    const MiotProperty* cw501dNight = property(cw501d, "night-shot");
+    assert(cw501dNight != nullptr && cw501dNight->siid == 2 && cw501dNight->piid == 3);
+    assert(cw501dNight->options.size() == 6);
+    assert(cw501dNight->options[5].value == 5);
+    assert(property(cw501d, "recording-mode")->options[0].label == std::string_view("Off"));
+    const MiotProperty* cw501dSensitivity = property(cw501d, "detection-sensitivity");
+    assert(cw501dSensitivity != nullptr && cw501dSensitivity->siid == 5 &&
+           cw501dSensitivity->piid == 3);
+    assert(cw501dSensitivity->options[0].value == 0);
+    assert(property(cw501d, "box-dome-linkage")->siid == 2);
+    assert(property(cw501d, "hl-filllight-switch")->siid == 21);
+    assert(property(cw501d, "hl-filllight-lum")->piid == 2);
+    assert(property(cw501d, "sd-total")->siid == 4);
+    assert(property(cw501d, "box-switch") == nullptr);
+    assert(action(cameraActions("isa.camera.cw501d"), "sd-format")->siid == 4);
+    assert(property(cameraProperties("isa.camera.500dh"), "box-switch") != nullptr);
+
     assert(cameraProperties("xiaomi.camera.unverified").empty());
     assert(cameraActions("xiaomi.camera.unverified").empty());
     return 0;

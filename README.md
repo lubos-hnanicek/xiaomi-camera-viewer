@@ -1,8 +1,8 @@
 # Xiaomi Camera Viewer
 
 A native Windows application for watching and controlling Xiaomi CW400 and CW500
-cameras, with provisional support for the CW300, C301, C701 and CW700S. One
-executable, no Docker, no WSL, no browser.
+cameras, with provisional support for the CW501D, CW300, C301, C701 and CW700S.
+One executable, no Docker, no WSL, no browser.
 
 Video travels straight from the camera to your PC over the local network.
 Xiaomi's cloud is used only to sign in, list your devices, exchange the
@@ -39,7 +39,8 @@ attached separately to each release for debugging.
   indicator LED, recording mode and SD card status
 - Playback of the footage on a camera's own SD card, browsed by day, hour and
   clip, on the CW400, C400, C301, C701, global CW300 and both lenses of the CW500
-- Both lenses of a dual-lens CW500 as independent tiles over one camera session
+- Both lenses of a dual-lens CW500 or CW501D as independent tiles over one camera
+  session
 - Automatic reconnection with backoff when a camera drops the session
 - Sign-in handles captchas and two-step verification; the resulting token is
   stored encrypted with your Windows account key

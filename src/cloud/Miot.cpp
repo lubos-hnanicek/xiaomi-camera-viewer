@@ -119,6 +119,84 @@ const std::vector<MiotAction> kC400Actions = {
     {"sd-eject", "Eject SD card", "Maintenance", 4, 2, false},
 };
 
+// The CW501D shares the CW500's stream protocol, but its MIoT spec has
+// different enum values and several controls under different service ids.
+const std::vector<MiotProperty> kCw501dProperties = {
+    {"on", "Camera on", "Image", 2, 1, MiotType::Bool, true},
+    {"image-rollover", "Rotate image", "Image", 2, 2, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Normal"}, {180, "Upside down"}}},
+    {"night-shot", "Night vision", "Image", 2, 3, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Off"},
+      {1, "On"},
+      {2, "Auto"},
+      {3, "Auto full color"},
+      {4, "On full color"},
+      {5, "Auto smart full color"}}},
+    {"time-watermark", "Timestamp overlay", "Image", 2, 4, MiotType::Bool, true},
+    {"recording-mode", "Recording mode", "Recording", 2, 7, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Off"}, {1, "On motion"}, {2, "Continuous"}}},
+    {"motion-tracking", "Track movement", "Tracking", 2, 8, MiotType::Bool, true},
+    {"hdr-mode", "HDR", "Image", 2, 9, MiotType::Bool, true},
+    {"human-tracking", "Track people", "Tracking", 2, 10, MiotType::Bool, true},
+    {"image-distortion-correction", "Distortion correction", "Image", 2, 12,
+     MiotType::Bool, true},
+    {"hl-audible-alarm", "Sound and light warning", "Lights and sound", 2, 13,
+     MiotType::Bool, true},
+    {"box-dome-linkage", "Lens linkage", "Dual lens", 2, 14, MiotType::Enum, true, 0, 0, 1,
+     {{-1, "Default"}, {0, "Off"}, {1, "On"}}},
+    {"power-frequency", "Power frequency", "Image", 2, 17, MiotType::Enum, true, 0, 0, 1,
+     {{0, "60 Hz"}, {1, "50 Hz"}, {2, "Auto"}}},
+
+    {"indicator-light", "Status LED", "Lights and sound", 3, 1, MiotType::Bool, true},
+    {"sd-status", "SD card", "Recording", 4, 1, MiotType::Enum, false, 0, 0, 1,
+     {{0, "Ready"},
+      {1, "Not inserted"},
+      {2, "Low space"},
+      {3, "Device error"},
+      {4, "Formatting"},
+      {5, "Ejected"},
+      {6, "Not initialised"},
+      {7, "Too small"},
+      {8, "Incompatible"},
+      {9, "File error"}}},
+    {"sd-total", "SD total (KB)", "Recording", 4, 2, MiotType::Int, false},
+    {"sd-free", "SD free (KB)", "Recording", 4, 3, MiotType::Int, false},
+    {"sd-used", "SD used (KB)", "Recording", 4, 4, MiotType::Int, false},
+
+    {"motion-detection", "Motion detection", "Detection", 5, 1, MiotType::Bool, true},
+    {"alarm-interval", "Alarm interval", "Detection", 5, 2, MiotType::Int, true, 1, 30, 1, {},
+     "Minutes to wait before raising the same alarm again."},
+    {"detection-sensitivity", "Sensitivity", "Detection", 5, 3, MiotType::Enum, true, 0, 0, 1,
+     {{0, "Low"}, {1, "Medium"}, {2, "High"}}},
+    {"motion-detection-start-time", "Active from", "Detection", 5, 4, MiotType::String, true},
+    {"motion-detection-end-time", "Active until", "Detection", 5, 5, MiotType::String, true},
+
+    {"fav-area", "Saved positions", "Pan and tilt", 9, 1, MiotType::String, true},
+    {"active-fav-area", "Active preset", "Pan and tilt", 9, 2, MiotType::Int, true, 0, 64, 1, {},
+     "Writing a preset number moves the lens to that saved position."},
+
+    {"human-detection", "Human detection", "Detection", 13, 4, MiotType::Bool, true},
+    {"move-detection", "Frame change detection", "Detection", 13, 5, MiotType::Bool, true},
+    {"ai-detection-sensitivity", "AI sensitivity", "Detection", 13, 10, MiotType::Enum, true,
+     0, 0, 1, {{0, "Low"}, {1, "Medium"}, {2, "High"}}},
+
+    {"hl-filllight-switch", "White light", "Lights and sound", 21, 1, MiotType::Bool, true},
+    {"hl-filllight-lum", "White light brightness", "Lights and sound", 21, 2,
+     MiotType::Int, true, 1, 100, 1},
+    {"dome-switch", "Motorised lens on", "Dual lens", 6, 25, MiotType::Bool, true},
+};
+
+const std::vector<MiotAction> kCw501dActions = {
+    {"ptz-calibrate", "Calibrate pan and tilt", "Pan and tilt", 2, 1, false,
+     "Re-homes the motor. The lens will sweep its full range."},
+    {"ptz-calibrate-x", "Calibrate horizontal only", "Pan and tilt", 2, 3},
+    {"ptz-calibrate-y", "Calibrate vertical only", "Pan and tilt", 2, 4},
+    {"restart-device", "Restart camera", "Maintenance", 2, 2, true,
+     "The camera will be offline for around a minute."},
+    {"sd-format", "Format SD card", "Maintenance", 4, 1, true,
+     "Erases every recording on the card. This cannot be undone."},
+};
+
 const std::vector<MiotProperty> kC500ProProperties = {
     {"on", "Camera on", "Image", 2, 1, MiotType::Bool, true},
     {"image-rollover", "Flip image", "Image", 2, 2, MiotType::Enum, true, 0, 180, 180,
@@ -460,6 +538,9 @@ const std::vector<MiotAction> kCw700sActions = {
 } // namespace
 
 const std::vector<MiotProperty>& cameraProperties(const std::string& model) {
+    if (model == "isa.camera.cw501d") {
+        return kCw501dProperties;
+    }
     if (isC400(model)) {
         return kC400Properties;
     }
@@ -488,6 +569,9 @@ const std::vector<MiotProperty>& cameraProperties(const std::string& model) {
 }
 
 const std::vector<MiotAction>& cameraActions(const std::string& model) {
+    if (model == "isa.camera.cw501d") {
+        return kCw501dActions;
+    }
     if (isC400(model)) {
         return kC400Actions;
     }
