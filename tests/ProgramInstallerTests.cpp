@@ -3,10 +3,12 @@
 #include <windows.h>
 
 #include <filesystem>
+#include <chrono>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -107,6 +109,24 @@ int wmain() {
         fs::create_directories(probe);
         require(xv::program_installer::canWriteDirectory(probe),
                 "writable application directory was not detected");
+
+        const fs::path cleanupWork = fs::temp_directory_path() /
+            (std::wstring(L"XiaomiViewer-update-{cleanup-test-") +
+             std::to_wstring(::GetTickCount64()) + L"}");
+        fs::create_directories(cleanupWork);
+        write(cleanupWork / "leftover.txt", "remove me");
+        const HANDLE predecessor = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        require(predecessor != nullptr, "could not create cleanup predecessor handle");
+        std::jthread release([predecessor] {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            ::SetEvent(predecessor);
+        });
+        const auto started = std::chrono::steady_clock::now();
+        require(xv::program_installer::cleanup(cleanupWork, predecessor).empty(),
+                "cleanup helper mode failed");
+        require(!fs::exists(cleanupWork), "cleanup helper did not remove the work directory");
+        require(std::chrono::steady_clock::now() - started >= std::chrono::milliseconds(40),
+                "cleanup helper did not wait for the inherited predecessor handle");
         std::error_code cleanup;
         fs::remove_all(root, cleanup);
         std::cout << "Standalone updater installation, rollback, preservation and write-probe checks passed\n";

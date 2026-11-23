@@ -45,16 +45,28 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR commandLine, 
     std::string error;
     try {
         const auto arguments = parseArguments(argc, argv);
-        if (arguments.size() != 4) {
-            throw std::runtime_error("The updater command line was incomplete.");
+        if (arguments.contains(L"--cleanup")) {
+            if (arguments.size() != 3 ||
+                required(arguments, L"--cleanup") != L"true") {
+                throw std::runtime_error("The updater cleanup command line was incomplete.");
+            }
+            const auto handleValue =
+                std::stoull(required(arguments, L"--wait-handle"), nullptr, 10);
+            error = xv::program_installer::cleanup(
+                required(arguments, L"--work"),
+                reinterpret_cast<HANDLE>(static_cast<UINT_PTR>(handleValue)));
+        } else {
+            if (arguments.size() != 4) {
+                throw std::runtime_error("The updater command line was incomplete.");
+            }
+            xv::program_installer::Options options;
+            options.targetDirectory = required(arguments, L"--target");
+            options.stageDirectory = required(arguments, L"--stage");
+            options.workDirectory = required(arguments, L"--work");
+            options.parentProcessId =
+                std::stoul(required(arguments, L"--parent"), nullptr, 10);
+            error = xv::program_installer::install(options);
         }
-        xv::program_installer::Options options;
-        options.targetDirectory = required(arguments, L"--target");
-        options.stageDirectory = required(arguments, L"--stage");
-        options.workDirectory = required(arguments, L"--work");
-        options.parentProcessId =
-            std::stoul(required(arguments, L"--parent"), nullptr, 10);
-        error = xv::program_installer::install(options);
     } catch (const std::exception& failure) {
         error = failure.what();
     }

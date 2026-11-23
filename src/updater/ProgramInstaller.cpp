@@ -2,6 +2,7 @@
 
 #include <array>
 #include <algorithm>
+#include <cstddef>
 #include <format>
 #include <fstream>
 #include <stdexcept>
@@ -155,26 +156,53 @@ void startViewer(const std::filesystem::path& directory) {
     }
 }
 
-void scheduleCleanup(const std::filesystem::path& work) {
-    std::array<wchar_t, MAX_PATH> system{};
-    const UINT length = ::GetSystemDirectoryW(system.data(), static_cast<UINT>(system.size()));
-    if (length == 0 || length >= system.size()) {
-        return;
+void scheduleCleanup(const std::filesystem::path& target,
+                     const std::filesystem::path& work) {
+    HANDLE predecessor = nullptr;
+    if (!::DuplicateHandle(::GetCurrentProcess(), ::GetCurrentProcess(),
+                           ::GetCurrentProcess(), &predecessor, SYNCHRONIZE, TRUE,
+                           0)) {
+        throw std::runtime_error(std::format(
+            "Could not prepare update cleanup (Windows error {}).", ::GetLastError()));
     }
-    const auto commandInterpreter =
-        std::filesystem::path(system.data()) / L"cmd.exe";
-    auto command = commandQuote(commandInterpreter) + L" /d /c \"ping 127.0.0.1 -n 3 >nul & "
-        L"rd /s /q " + commandQuote(work) + L" >nul 2>&1\"";
+    const auto updater = target / L"XiaomiViewerUpdater.exe";
+    auto command = commandQuote(updater) + L" --cleanup true" +
+        L" --work " + commandQuote(work) +
+        L" --wait-handle " + std::to_wstring(reinterpret_cast<UINT_PTR>(predecessor));
     const auto temporary = std::filesystem::temp_directory_path();
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    startup.dwFlags = STARTF_USESHOWWINDOW;
-    startup.wShowWindow = SW_HIDE;
+    STARTUPINFOEXW startup{};
+    startup.StartupInfo.cb = sizeof(startup);
+    startup.StartupInfo.dwFlags = STARTF_USESHOWWINDOW;
+    startup.StartupInfo.wShowWindow = SW_HIDE;
+    SIZE_T attributeSize = 0;
+    ::InitializeProcThreadAttributeList(nullptr, 1, 0, &attributeSize);
+    std::vector<std::byte> attributes(attributeSize);
+    startup.lpAttributeList =
+        reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attributes.data());
+    if (!::InitializeProcThreadAttributeList(startup.lpAttributeList, 1, 0,
+                                             &attributeSize) ||
+        !::UpdateProcThreadAttribute(startup.lpAttributeList, 0,
+                                     PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+                                     &predecessor, sizeof(predecessor), nullptr,
+                                     nullptr)) {
+        ::DeleteProcThreadAttributeList(startup.lpAttributeList);
+        ::CloseHandle(predecessor);
+        throw std::runtime_error(std::format(
+            "Could not configure update cleanup (Windows error {}).", ::GetLastError()));
+    }
     PROCESS_INFORMATION process{};
-    if (::CreateProcessW(commandInterpreter.c_str(), command.data(), nullptr, nullptr, FALSE,
-                         CREATE_NO_WINDOW, nullptr, temporary.c_str(), &startup, &process)) {
+    const BOOL created = ::CreateProcessW(
+        updater.c_str(), command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW |
+            EXTENDED_STARTUPINFO_PRESENT, nullptr, temporary.c_str(),
+        &startup.StartupInfo, &process);
+    ::DeleteProcThreadAttributeList(startup.lpAttributeList);
+    ::CloseHandle(predecessor);
+    if (created) {
         ::CloseHandle(process.hThread);
         ::CloseHandle(process.hProcess);
+    } else {
+        throw std::runtime_error(std::format(
+            "Could not start update cleanup (Windows error {}).", ::GetLastError()));
     }
 }
 
@@ -298,10 +326,48 @@ std::string install(const Options& options) {
                                installError.what());
         }
         if (options.cleanUp) {
-            scheduleCleanup(work);
+            scheduleCleanup(target, work);
         }
         return {};
     } catch (const std::exception& error) {
+        return error.what();
+    }
+}
+
+std::string cleanup(const std::filesystem::path& workDirectory, HANDLE predecessor) {
+    if (predecessor == nullptr) {
+        return "The update cleanup process did not receive its predecessor handle.";
+    }
+    try {
+        if (::WaitForSingleObject(predecessor, INFINITE) != WAIT_OBJECT_0) {
+            const DWORD waitError = ::GetLastError();
+            ::CloseHandle(predecessor);
+            predecessor = nullptr;
+            return std::format("Could not wait for the completed updater (Windows error {}).",
+                               waitError);
+        }
+        ::CloseHandle(predecessor);
+        predecessor = nullptr;
+        std::error_code error;
+        const auto work = std::filesystem::canonical(workDirectory, error);
+        if (error) {
+            return "The update cleanup directory is invalid.";
+        }
+        const auto temporary =
+            std::filesystem::canonical(std::filesystem::temp_directory_path(), error);
+        if (error || !work.filename().wstring().starts_with(L"XiaomiViewer-update-") ||
+            work.parent_path() != temporary) {
+            return "The update cleanup directory is invalid.";
+        }
+        std::filesystem::remove_all(work, error);
+        if (error) {
+            return std::format("Could not remove the update files: {}", error.message());
+        }
+        return {};
+    } catch (const std::exception& error) {
+        if (predecessor != nullptr) {
+            ::CloseHandle(predecessor);
+        }
         return error.what();
     }
 }

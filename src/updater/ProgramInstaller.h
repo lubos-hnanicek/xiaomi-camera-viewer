@@ -20,5 +20,7 @@ struct Options {
 
 [[nodiscard]] bool canWriteDirectory(const std::filesystem::path& directory);
 [[nodiscard]] std::string install(const Options& options);
+[[nodiscard]] std::string cleanup(const std::filesystem::path& workDirectory,
+                                  HANDLE predecessor);
 
 } // namespace xv::program_installer
