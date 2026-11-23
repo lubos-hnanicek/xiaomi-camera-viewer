@@ -23,6 +23,27 @@ Download the latest application package for your Windows architecture:
 These links contain the application package only. Matching symbol archives are
 attached separately to each release for debugging.
 
+### Updating
+
+Open **Help -> Check for updates** to check GitHub for a newer stable
+release. The confirmation dialog shows its changelog and download size. No
+application package is downloaded until you choose **Download and update**.
+
+The dialog shows download progress and supports cancellation before installation.
+The package is checked against GitHub's SHA-256 digest, and its version and
+architecture are validated. The standalone updater executable replaces the files
+and requests administrator approval only when the current application folder
+is not writable. The viewer then closes and the updater restarts it. Active
+recordings stop cleanly; your account, configuration
+and recordings are preserved. Unrelated files in the application folder are left
+alone. If replacement or restart fails, the helper attempts to restore the
+original files and reports the error. Failed updates retain their temporary
+files and backups for recovery.
+
+The application folder must be writable. Update checks are never automatic.
+Windows PowerShell, included with Windows, performs the update; no developer
+tools or administrator rights are needed for a writable portable folder.
+
 ## Features
 
 - Live view of several cameras at once, in a 1x1, 2x2, 3x3 or automatic grid

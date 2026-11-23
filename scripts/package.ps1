@@ -109,9 +109,11 @@ if ($Stage) {
     New-Item -ItemType Directory -Force -Path $StageDir | Out-Null
 
     Copy-Item (Join-Path $OutputDir 'XiaomiViewer.exe') $StageDir
+    Copy-Item (Join-Path $OutputDir 'XiaomiViewerUpdater.exe') $StageDir
     Copy-Item (Join-Path $OutputDir '*.dll') $StageDir -ErrorAction SilentlyContinue
     Copy-Item (Join-Path $OutputDir 'ProggyVector-Regular.ttf') $StageDir
     Copy-Item (Join-Path $PSScriptRoot 'collect-camera-diagnostics.ps1') $StageDir
+    Copy-Item (Join-Path $PSScriptRoot 'update-program.ps1') $StageDir
     Copy-Item (Join-Path $RepoRoot 'docs\camera-diagnostics.md') $StageDir
 
     # LICENSE.LGPL-2.1.txt has to travel with the FFmpeg DLLs, not just be

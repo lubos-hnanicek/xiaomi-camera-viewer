@@ -49,6 +49,8 @@ inline constexpr const char* kHelpTabAbout = "About";
 // whichever page was last read.
 void drawHelpWindow(App& app, bool& open, const char*& tab);
 
+void drawProgramUpdateDialog(App& app, bool& open);
+
 // Shared helpers.
 namespace ui {
 

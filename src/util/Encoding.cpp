@@ -8,6 +8,26 @@
 
 namespace xv::encoding {
 
+std::wstring quoteArgument(const std::wstring& value) {
+    std::wstring result = L"\"";
+    size_t backslashes = 0;
+    for (const wchar_t character : value) {
+        if (character == L'\\') {
+            ++backslashes;
+        } else {
+            result.append(backslashes * (character == L'"' ? 2 : 1), L'\\');
+            backslashes = 0;
+            if (character == L'"') {
+                result += L'\\';
+            }
+            result += character;
+        }
+    }
+    result.append(backslashes * 2, L'\\');
+    result += L'"';
+    return result;
+}
+
 std::string base64Encode(const std::vector<uint8_t>& data) {
     if (data.empty()) {
         return {};

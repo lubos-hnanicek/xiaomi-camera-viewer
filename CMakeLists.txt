@@ -153,6 +153,7 @@ add_executable(XiaomiViewer WIN32
     src/app/CameraDiagnostics.cpp
     src/app/Frameless.cpp
     src/app/Log.cpp
+    src/app/ProgramUpdate.cpp
     src/app/SingleInstance.cpp
     src/app/Theme.cpp
     src/bridge/Bridge.cpp
@@ -180,6 +181,7 @@ add_executable(XiaomiViewer WIN32
     src/ui/PtzOverlay.cpp
     src/ui/SdCardView.cpp
     src/ui/SettingsView.cpp
+    src/updater/ProgramInstaller.cpp
     src/util/Encoding.cpp
     src/util/FileDialog.cpp
     "${APP_MANIFEST}"
@@ -187,10 +189,28 @@ add_executable(XiaomiViewer WIN32
 
 add_dependencies(XiaomiViewer bridge)
 
+add_executable(XiaomiViewerUpdater WIN32
+    src/updater/Updater.cpp
+    src/updater/ProgramInstaller.cpp
+    src/updater/updater.rc)
+target_include_directories(XiaomiViewerUpdater PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${GENERATED_DIR}")
+target_link_libraries(XiaomiViewerUpdater PRIVATE shell32)
+target_compile_definitions(XiaomiViewerUpdater PRIVATE
+    UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+if(MSVC)
+    target_compile_options(XiaomiViewerUpdater PRIVATE /W4 /permissive- /EHsc /utf-8)
+    target_link_options(XiaomiViewerUpdater PRIVATE /SUBSYSTEM:WINDOWS)
+endif()
+add_dependencies(XiaomiViewer XiaomiViewerUpdater)
+
 # rc.exe cannot report what a script pulled in, so the icon and the generated
 # version header have to be named as dependencies by hand, or a regenerated icon
 # and a bumped version never reach the executable.
 set_source_files_properties(src/app/app.rc PROPERTIES
+    OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/app/XiaomiViewer.ico;${VERSION_HEADER}")
+set_source_files_properties(src/updater/updater.rc PROPERTIES
     OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/app/XiaomiViewer.ico;${VERSION_HEADER}")
 
 target_include_directories(XiaomiViewer PRIVATE
@@ -236,22 +256,30 @@ endif()
 # every new stream command looks like "unknown".
 add_custom_command(TARGET XiaomiViewer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:XiaomiViewerUpdater>" "$<TARGET_FILE_DIR:XiaomiViewer>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${BRIDGE_DLL}" "$<TARGET_FILE_DIR:XiaomiViewer>"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${UI_FONT_VECTOR_FILE}" "$<TARGET_FILE_DIR:XiaomiViewer>"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/collect-camera-diagnostics.ps1" "$<TARGET_FILE_DIR:XiaomiViewer>"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/update-program.ps1" "$<TARGET_FILE_DIR:XiaomiViewer>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/docs/camera-diagnostics.md" "$<TARGET_FILE_DIR:XiaomiViewer>"
     COMMENT "Staging runtime dependencies next to XiaomiViewer")
 
 set(STAGE_COMMANDS
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:XiaomiViewerUpdater>" "$<TARGET_FILE_DIR:XiaomiViewer>"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${BRIDGE_DLL}" "$<TARGET_FILE_DIR:XiaomiViewer>"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${UI_FONT_VECTOR_FILE}" "$<TARGET_FILE_DIR:XiaomiViewer>"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/collect-camera-diagnostics.ps1" "$<TARGET_FILE_DIR:XiaomiViewer>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/update-program.ps1" "$<TARGET_FILE_DIR:XiaomiViewer>"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/docs/camera-diagnostics.md" "$<TARGET_FILE_DIR:XiaomiViewer>")
 
@@ -264,7 +292,9 @@ endforeach()
 add_custom_target(stage_runtime ALL
     ${STAGE_COMMANDS}
     DEPENDS "${BRIDGE_DLL}" "${UI_FONT_VECTOR_FILE}"
+        XiaomiViewerUpdater
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/collect-camera-diagnostics.ps1"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/update-program.ps1"
         "${CMAKE_CURRENT_SOURCE_DIR}/docs/camera-diagnostics.md"
     COMMENT "Staging runtime dependencies")
 
@@ -282,17 +312,55 @@ if(BUILD_TESTING)
 
     add_executable(camera_diagnostics_tests
         tests/CameraDiagnosticsTests.cpp
-        src/app/CameraDiagnostics.cpp)
+        src/app/CameraDiagnostics.cpp
+        src/util/Encoding.cpp)
     target_include_directories(camera_diagnostics_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_compile_definitions(camera_diagnostics_tests PRIVATE
         UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_link_libraries(camera_diagnostics_tests PRIVATE nlohmann_json ole32)
+    target_link_libraries(camera_diagnostics_tests PRIVATE nlohmann_json ole32 crypt32)
     if(MSVC)
         target_compile_options(camera_diagnostics_tests PRIVATE /W4 /permissive- /EHsc /utf-8)
     endif()
     add_test(NAME camera_diagnostics COMMAND camera_diagnostics_tests
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/collect-camera-diagnostics.ps1")
+
+    add_test(NAME program_update COMMAND powershell -NoProfile -NonInteractive
+        -ExecutionPolicy Bypass -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/ProgramUpdateTests.ps1"
+        -HelperScript "${CMAKE_CURRENT_SOURCE_DIR}/scripts/update-program.ps1")
+
+    add_executable(program_installer_tests
+        tests/ProgramInstallerTests.cpp
+        src/updater/ProgramInstaller.cpp)
+    target_include_directories(program_installer_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(program_installer_tests PRIVATE shell32)
+    target_compile_definitions(program_installer_tests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    if(MSVC)
+        target_compile_options(program_installer_tests PRIVATE /W4 /permissive- /EHsc /utf-8)
+    endif()
+    add_test(NAME program_installer COMMAND program_installer_tests)
+
+    add_executable(program_update_native_tests
+        tests/ProgramUpdateNativeTests.cpp
+        src/app/ProgramUpdate.cpp
+        src/app/Log.cpp
+        src/updater/ProgramInstaller.cpp
+        src/util/Encoding.cpp)
+    target_include_directories(program_update_native_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${GENERATED_DIR}")
+    target_link_libraries(program_update_native_tests PRIVATE nlohmann_json crypt32 shell32 ole32)
+    target_compile_definitions(program_update_native_tests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    if(MSVC)
+        target_compile_options(program_update_native_tests PRIVATE /W4 /permissive- /EHsc /utf-8)
+    endif()
+    add_custom_command(TARGET program_update_native_tests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/scripts/update-program.ps1"
+            "$<TARGET_FILE_DIR:program_update_native_tests>")
+    add_test(NAME program_update_native COMMAND program_update_native_tests)
 
     add_executable(recording_timeline_tests
         tests/RecordingTimelineTests.cpp)

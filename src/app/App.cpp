@@ -999,6 +999,7 @@ int App::run(HINSTANCE instance, int showCommand) {
     }
 
     XV_INFO("shutting down");
+    programUpdate_.cancel();
     cameraDiagnostics_.cancel();
     playback_.close();
     stopStreams();
@@ -1096,6 +1097,9 @@ void App::frame() {
 
     if (showHelpWindow_) {
         drawHelpWindow(*this, showHelpWindow_, helpTab_);
+    }
+    if (showProgramUpdateDialog_) {
+        drawProgramUpdateDialog(*this, showProgramUpdateDialog_);
     }
     if (configurationDialog_.open || configurationDialog_.openRequested) {
         drawConfigurationDialog(*this);
@@ -1333,6 +1337,12 @@ void App::drawMenuBar() {
             ImGui::SetItemTooltip("Sign in to select a camera from your Xiaomi account.");
         }
         ImGui::Separator();
+        ImGui::BeginDisabled(programUpdate_.busy());
+        if (ImGui::MenuItem("Check for updates...")) {
+            checkForProgramUpdate();
+        }
+        ImGui::EndDisabled();
+        ImGui::Separator();
         if (ImGui::MenuItem("About")) {
             showHelpWindow_ = true;
             helpTab_ = kHelpTabAbout;
@@ -1416,7 +1426,25 @@ void App::drawCaptionButtons(float dragFrom) {
 
 // --- Tasks ------------------------------------------------------------------
 
+void App::checkForProgramUpdate() {
+    programUpdate_.check();
+    showProgramUpdateDialog_ = true;
+}
+
 void App::pumpTasks() {
+    programUpdate_.poll();
+    if (programUpdate_.status().state == ProgramUpdate::State::Ready) {
+        if (cameraDiagnostics_.busy()) {
+            programUpdate_.fail("Finish or cancel camera diagnostics before updating the program.");
+        } else {
+            rememberPlacement();
+            if (!config_.save()) {
+                programUpdate_.fail("Could not save your configuration. The program update was not installed.");
+            } else if (programUpdate_.install()) {
+                running_ = false;
+            }
+        }
+    }
     const bool diagnosticsWereBusy = cameraDiagnostics_.busy();
     cameraDiagnostics_.poll();
     if (diagnosticsWereBusy && !cameraDiagnostics_.busy()) {

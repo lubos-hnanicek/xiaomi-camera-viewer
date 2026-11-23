@@ -12,6 +12,7 @@
 
 #include "app/Frameless.h"
 #include "app/CameraDiagnostics.h"
+#include "app/ProgramUpdate.h"
 #include "cloud/Miot.h"
 #include "config/Config.h"
 #include "media/AudioPlayer.h"
@@ -158,6 +159,9 @@ public:
     void openDiagnosticsFolder() const;
     void openDiagnosticsReport() const;
     void showDiagnosticsHelp();
+
+    ProgramUpdate& programUpdate() { return programUpdate_; }
+    void checkForProgramUpdate();
 
     // Adds a camera (or one lens of a dual-lens camera) to the grid.
     void addCamera(const DiscoveredDevice& device, const std::string& channel);
@@ -344,6 +348,8 @@ private:
     AsyncTask<Json> restoreTask_;
     std::string deviceError_;
     CameraDiagnostics cameraDiagnostics_;
+    ProgramUpdate programUpdate_;
+    bool showProgramUpdateDialog_ = false;
     DiagnosticsViewState diagnosticsView_;
     std::string diagnosticCameraDid_;
     std::vector<CameraConfig> diagnosticResumeCameras_;

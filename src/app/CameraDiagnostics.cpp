@@ -8,31 +8,15 @@
 
 #include <nlohmann/json.hpp>
 
+#include "util/Encoding.h"
+
 namespace xv {
 namespace {
 
+using encoding::quoteArgument;
+
 std::filesystem::path utf8Path(const std::string& value) {
     return std::filesystem::path(std::u8string(value.begin(), value.end()));
-}
-
-std::wstring quoteArgument(const std::wstring& value) {
-    std::wstring result = L"\"";
-    size_t backslashes = 0;
-    for (const wchar_t character : value) {
-        if (character == L'\\') {
-            ++backslashes;
-        } else {
-            result.append(backslashes * (character == L'"' ? 2 : 1), L'\\');
-            backslashes = 0;
-            if (character == L'"') {
-                result += L'\\';
-            }
-            result += character;
-        }
-    }
-    result.append(backslashes * 2, L'\\');
-    result += L'"';
-    return result;
 }
 
 bool insideDirectory(const std::filesystem::path& path, const std::filesystem::path& directory) {

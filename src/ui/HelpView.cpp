@@ -434,8 +434,9 @@ void drawAbout() {
     bullet("Signing in, listing cameras and reading or writing settings go to Xiaomi's servers in "
            "the region you pick, and are handled by Xiaomi under their privacy policy.");
     bullet("Video and audio travel directly between the cameras and this PC.");
-    bullet("Nothing goes to the maintainers of this project or anyone else. There is no telemetry, "
-           "no crash reporting and no update check.");
+    bullet("There is no telemetry, crash reporting or automatic update check. Checking for "
+           "updates contacts GitHub only when you ask; an application package is downloaded "
+           "only after you confirm.");
     bullet("The account token is stored on this PC only, encrypted with your Windows account key "
            "so another account cannot read it.");
     ImGui::Dummy(ImVec2(0, 10));
@@ -551,6 +552,77 @@ void drawHelpWindow(App& app, bool& open, const char*& tab) {
 
     tab = nullptr;
     ImGui::End();
+}
+
+void drawProgramUpdateDialog(App& app, bool& open) {
+    auto& update = app.programUpdate();
+    const auto& status = update.status();
+    using State = ProgramUpdate::State;
+    if (!ImGui::IsPopupOpen("Program update")) {
+        ImGui::OpenPopup("Program update");
+    }
+    const float unit = ImGui::GetFontSize();
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetWorkCenter(), ImGuiCond_Appearing,
+                           ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(unit * 48, 0), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal("Program update", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        return;
+    }
+    ImGui::Text("Installed version: %s (%s)", XV_VERSION, XV_ARCHITECTURE);
+    if (!status.version.empty()) {
+        ImGui::Text("Latest stable version: %s", status.version.c_str());
+    }
+    if (status.state == State::Available) {
+        ImGui::SeparatorText("Changelog");
+        if (ImGui::BeginChild("##updatechangelog", ImVec2(0, unit * 17), ImGuiChildFlags_Borders)) {
+            ImGui::TextWrapped("%s", status.changelog.empty() ?
+                "This release has no changelog." : status.changelog.c_str());
+        }
+        ImGui::EndChild();
+        ImGui::TextWrapped("Download %s and update this application folder? The viewer will close "
+                           "and restart, stopping active recordings. Your account, settings and "
+                           "recordings are preserved.", ui::humanBytes(status.total).c_str());
+        if (ImGui::Button("Download and update")) {
+            update.confirm();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Not now")) {
+            update.cancel();
+            open = false;
+            ImGui::CloseCurrentPopup();
+        }
+    } else if (status.state == State::Checking || status.state == State::Downloading ||
+               status.state == State::Ready || status.state == State::Installing) {
+        ImGui::TextWrapped("%s", status.step.c_str());
+        const float progress = status.state == State::Checking || status.total == 0 ?
+            -static_cast<float>(ImGui::GetTime()) :
+            static_cast<float>(static_cast<double>(status.downloaded) / static_cast<double>(status.total));
+        ImGui::ProgressBar(progress, ImVec2(-1, 0));
+        if (status.state != State::Checking) {
+            ImGui::Text("%s / %s", ui::humanBytes(status.downloaded).c_str(),
+                        ui::humanBytes(status.total).c_str());
+        }
+        ImGui::BeginDisabled(status.state == State::Installing);
+        if (ImGui::Button("Cancel")) {
+            update.cancel();
+            open = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndDisabled();
+    } else {
+        if (status.state == State::Failed) {
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::kFailed);
+            ImGui::TextWrapped("%s", status.error.c_str());
+            ImGui::PopStyleColor();
+        } else {
+            ImGui::TextWrapped("%s", status.step.c_str());
+        }
+        if (ImGui::Button("Close")) {
+            open = false;
+            ImGui::CloseCurrentPopup();
+        }
+    }
+    ImGui::EndPopup();
 }
 
 } // namespace xv

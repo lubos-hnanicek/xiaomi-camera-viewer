@@ -4,8 +4,9 @@
 
 .DESCRIPTION
     Reads the product name and version from the project's own definitions and
-    verifies that XiaomiViewer.exe and xmbridge.dll agree with them. The FFmpeg
-    DLLs are upstream binaries and therefore outside this project's metadata.
+    verifies that XiaomiViewer.exe, XiaomiViewerUpdater.exe and xmbridge.dll
+    agree with them. The FFmpeg DLLs are upstream binaries and therefore outside
+    this project's metadata.
 
 .PARAMETER Configuration
     Which build output to check. Ignored if -Path is given.
@@ -60,7 +61,7 @@ function Test-Value($Name, $Actual, $Expected, $File) {
     }
 }
 
-foreach ($name in @('XiaomiViewer.exe', 'xmbridge.dll')) {
+foreach ($name in @('XiaomiViewer.exe', 'XiaomiViewerUpdater.exe', 'xmbridge.dll')) {
     $file = Join-Path $Path $name
     if (-not (Test-Path $file)) {
         Write-Host "  FAIL  $name is missing" -ForegroundColor Red
