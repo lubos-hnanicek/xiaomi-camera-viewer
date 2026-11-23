@@ -174,12 +174,16 @@ jobs:
           foreach ($asset in $assets) {
             if (-not (Test-Path -LiteralPath "dist/$asset")) { throw "Missing release archive $asset" }
           }
-          $notes = "## Downloads`n`n" + (($assets | ForEach-Object {
+          $notesFile = "release-notes/$env:VERSION.md"
+          if (-not (Test-Path -LiteralPath $notesFile)) {
+            throw "Missing release notes $notesFile"
+          }
+          $changelog = Get-Content -LiteralPath $notesFile -Raw
+          $notes = $changelog.TrimEnd() + "`n`n## Downloads`n`n" + (($assets | ForEach-Object {
             "- [$_]($env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/releases/download/$env:TAG/$_)"
           }) -join "`n")
           gh release create $env:TAG `
             --title "Xiaomi Camera Viewer $env:VERSION" `
-            --generate-notes `
             --notes $notes `
             --draft
           if ($LASTEXITCODE -ne 0) { throw 'Could not create the draft release' }
