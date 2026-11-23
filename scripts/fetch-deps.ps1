@@ -47,18 +47,18 @@ $JsonSha256 = 'AAF127C04CB31C406E5B04A63F1AE89369FCCDE6D8FA7CDDA1ED4F32DFC5DE63'
 $ProggyVectorUrl = 'https://raw.githubusercontent.com/bluescan/proggyfonts/139ec08a38096161291792313ef5803fc4f0e37b/ProggyVector/ProggyVector-Regular.ttf'
 $ProggyVectorSha256 = 'DAE80A9B9BB23A37F60465DD93DE9365A8DDD43300ADC304D96F91CE54C28DD5'
 
-$FFmpegRelease = 'autobuild-2026-11-09-12-42'
+$FFmpegRelease = 'autobuild-2026-11-23-12-43'
 $FFmpegAsset = if ($Architecture -eq 'x64') {
-    'ffmpeg-n9.0.2-48-gd4070a14ce-win64-lgpl-shared-9.0.zip'
+    'ffmpeg-n9.0.2-62-gac1c6e003f-win64-lgpl-shared-9.0.zip'
 } else {
-    'ffmpeg-n9.0.2-48-gd4070a14ce-winarm64-lgpl-shared-9.0.zip'
+    'ffmpeg-n9.0.2-62-gac1c6e003f-winarm64-lgpl-shared-9.0.zip'
 }
 $FFmpegSha256 = if ($Architecture -eq 'x64') {
-    'B0981AEA79D223DD78E769CE3C9106E4B3F62F56464E243537E8976D957BB2A6'
+    'A5627BCDE93A2CFBC603D6348BC6CF27945589E8CE03735BDA157070988F430C'
 } else {
-    '5FE74E388388C0082AC2D6637DD100246C1758A7D907EA51943EF19264D53C75'
+    '675D6DA382EFB756644650D42F77F3847715BAA5EAAD57E1D5E883CCA8992E8C'
 }
-$FFmpegUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/$FFmpegRelease/$FFmpegAsset"
+$FFmpegUrl = "https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/$FFmpegRelease/$FFmpegAsset"
 
 New-Item -ItemType Directory -Force -Path $ThirdParty | Out-Null
 
