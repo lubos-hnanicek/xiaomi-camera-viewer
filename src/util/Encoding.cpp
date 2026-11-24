@@ -28,6 +28,11 @@ std::wstring quoteArgument(const std::wstring& value) {
     return result;
 }
 
+std::wstring createProcessCommand(const std::wstring& executable,
+                                  const std::wstring& parameters) {
+    return quoteArgument(executable) + L" " + parameters;
+}
+
 std::string base64Encode(const std::vector<uint8_t>& data) {
     if (data.empty()) {
         return {};

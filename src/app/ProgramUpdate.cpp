@@ -148,7 +148,7 @@ bool ProgramUpdate::install() {
     }
     application.resize(applicationLength);
     const auto target = std::filesystem::path(application).parent_path();
-    auto arguments = L"--target " + encoding::quoteArgument(target.wstring()) +
+    auto parameters = L"--target " + encoding::quoteArgument(target.wstring()) +
         L" --stage " + encoding::quoteArgument(stage.wstring()) +
         L" --work " + encoding::quoteArgument(runDirectory_.wstring()) +
         L" --parent " + std::to_wstring(::GetCurrentProcessId());
@@ -156,7 +156,8 @@ bool ProgramUpdate::install() {
         STARTUPINFOW startup{};
         startup.cb = sizeof(startup);
         PROCESS_INFORMATION process{};
-        if (!::CreateProcessW(updater.c_str(), arguments.data(), nullptr, nullptr, FALSE,
+        auto command = encoding::createProcessCommand(updater.wstring(), parameters);
+        if (!::CreateProcessW(updater.c_str(), command.data(), nullptr, nullptr, FALSE,
                               0, nullptr, stage.c_str(), &startup, &process)) {
             fail(std::format("Could not start the standalone updater (Windows error {}).",
                              ::GetLastError()));
@@ -170,7 +171,7 @@ bool ProgramUpdate::install() {
         execute.fMask = SEE_MASK_NOCLOSEPROCESS;
         execute.lpVerb = L"runas";
         execute.lpFile = updater.c_str();
-        execute.lpParameters = arguments.c_str();
+        execute.lpParameters = parameters.c_str();
         execute.lpDirectory = stage.c_str();
         execute.nShow = SW_SHOWNORMAL;
         if (!::ShellExecuteExW(&execute) || execute.hProcess == nullptr) {

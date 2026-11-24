@@ -1,10 +1,14 @@
 #include "app/ProgramUpdate.h"
 
+#include <shellapi.h>
+
 #include <chrono>
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
 #include <thread>
+
+#include "util/Encoding.h"
 
 namespace {
 
@@ -18,6 +22,19 @@ void require(bool value, const char* text) {
 
 int wmain() {
     try {
+        const auto command = xv::encoding::createProcessCommand(
+            LR"(C:\Program Files\XiaomiViewerUpdater.exe)",
+            L"--target \"C:\\Program Files\\Xiaomi Viewer\" --stage \"C:\\Temp\\stage\"");
+        int argc = 0;
+        wchar_t** argv = ::CommandLineToArgvW(command.c_str(), &argc);
+        require(argv != nullptr, "could not parse the updater CreateProcess command line");
+        require(argc == 5, "CreateProcess command line lost or added updater arguments");
+        require(std::wstring(argv[0]) == LR"(C:\Program Files\XiaomiViewerUpdater.exe)",
+                "CreateProcess argv[0] is not the updater executable");
+        require(std::wstring(argv[1]) == L"--target",
+                "the first updater option is not argv[1]");
+        ::LocalFree(argv);
+
         xv::ProgramUpdate update;
         update.check();
         if (!update.busy()) {
