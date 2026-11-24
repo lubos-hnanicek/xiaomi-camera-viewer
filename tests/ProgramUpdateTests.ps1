@@ -17,7 +17,12 @@ function Assert-Throws([scriptblock]$Action, [string]$Pattern) {
 }
 
 function Read-TestStatus([string]$Path) {
-    $stream = [IO.File]::Open($Path, 'Open', 'Read', ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+    try {
+        $stream = [IO.File]::Open($Path, 'Open', 'Read',
+            ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+    } catch [IO.FileNotFoundException], [IO.DirectoryNotFoundException] {
+        return $null
+    }
     $reader = [IO.StreamReader]::new($stream)
     try { return $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
 }
@@ -28,13 +33,15 @@ function Wait-Status([string]$Directory, [string]$State, $Process) {
         $path = Join-Path $Directory 'status.json'
         if (Test-Path -LiteralPath $path) {
             $status = Read-TestStatus $path
-            if ($status.state -eq $State) { return $status }
-            if ($status.state -eq 'failed') { throw "Helper failed: $($status.error)" }
+            if ($status) {
+                if ($status.state -eq $State) { return $status }
+                if ($status.state -eq 'failed') { throw "Helper failed: $($status.error)" }
+            }
         }
         if ($Process.HasExited) {
             if (Test-Path -LiteralPath $path) {
                 $status = Read-TestStatus $path
-                if ($status.state -eq $State) { return $status }
+                if ($status -and $status.state -eq $State) { return $status }
             }
             $errorPath = "$Directory-error.log"
             $details = if (Test-Path -LiteralPath $errorPath) { Get-Content -LiteralPath $errorPath -Raw } else { '' }
