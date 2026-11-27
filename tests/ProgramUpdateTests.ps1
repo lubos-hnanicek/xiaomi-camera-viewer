@@ -20,7 +20,7 @@ function Read-TestStatus([string]$Path) {
     try {
         $stream = [IO.File]::Open($Path, 'Open', 'Read',
             ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
-    } catch [IO.FileNotFoundException], [IO.DirectoryNotFoundException] {
+    } catch [IO.IOException] {
         return $null
     }
     $reader = [IO.StreamReader]::new($stream)
