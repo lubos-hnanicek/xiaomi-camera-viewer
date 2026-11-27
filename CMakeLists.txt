@@ -303,11 +303,11 @@ add_dependencies(stage_runtime XiaomiViewer)
 # --- Hardware-independent tests --------------------------------------------
 include(CTest)
 if(BUILD_TESTING)
-    # RelWithDebInfo defines NDEBUG, but these tests use assert for checks.
+    # Enable assertions in test sources without conflicting /D and /U flags.
     if(MSVC)
-        add_compile_options(/UNDEBUG)
+        add_compile_options("/FI${CMAKE_CURRENT_SOURCE_DIR}/tests/EnableAssertions.h")
     else()
-        add_compile_options(-UNDEBUG)
+        add_compile_options("SHELL:-include \"${CMAKE_CURRENT_SOURCE_DIR}/tests/EnableAssertions.h\"")
     endif()
 
     add_executable(camera_diagnostics_tests

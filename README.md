@@ -454,6 +454,9 @@ cd bridge; go test ./...          # protocol and dispatch logic
 .\scripts\build.ps1 -TestsOnly    # the four native CTest targets
 ```
 
+Native tests keep assertions enabled in every configuration, including
+RelWithDebInfo and Release.
+
 The version in the `project()` call in `CMakeLists.txt` is the only place a
 version is written by hand. The executable's version resource, the application
 manifest, the bridge DLL and the names of the zips are all derived from it, so
