@@ -441,6 +441,10 @@ archives are named `win-x64` and `win-arm64`.
 no developer command prompt is needed. The Go bridge is built as a dependency of
 the executable, so a plain `cmake --build` also works from the IDE.
 
+If a Visual Studio update removes the previously used compiler, `build.ps1`
+automatically refreshes CMake's cache and compiler metadata. Existing build
+outputs are retained.
+
 Tests:
 
 ```powershell

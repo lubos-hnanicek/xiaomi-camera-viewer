@@ -94,11 +94,15 @@ if (-not (Test-Path $vcvars)) {
 }
 
 $captured = & cmd.exe /c "`"$vcvars`" >nul 2>&1 && set"
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to initialize the Visual Studio developer environment with $vcvarsName."
+}
 foreach ($line in $captured) {
     if ($line -match '^([^=]+)=(.*)$') {
         Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2] -ErrorAction SilentlyContinue
     }
 }
+$compiler = (Get-Command cl.exe -CommandType Application -ErrorAction Stop).Source
 
 $cmakeRoot = Join-Path $vsPath 'Common7\IDE\CommonExtensions\Microsoft\CMake'
 $cmake = Join-Path $cmakeRoot 'CMake\bin\cmake.exe'
@@ -132,8 +136,26 @@ if (-not (Test-Path $imguiHeader) -or -not (Test-Path $ffmpegHeader) -or
 
 # --- Configure and build ----------------------------------------------------
 
+# CMake's generated compiler metadata can override command-line compiler paths.
+$configureArgs = @()
+$compilerInfoPattern = Join-Path $BuildDir 'CMakeFiles\*\CMakeCXXCompiler.cmake'
+if (Test-Path $compilerInfoPattern) {
+    foreach ($compilerInfo in Get-ChildItem -Path $compilerInfoPattern -File) {
+        $cachedCompiler = Select-String -LiteralPath $compilerInfo.FullName `
+            -Pattern '^set\(CMAKE_CXX_COMPILER "([^"]+)"\)'
+        if ($cachedCompiler) {
+            $cachedCompilerPath = $cachedCompiler.Matches[0].Groups[1].Value
+            if (-not (Test-Path -LiteralPath $cachedCompilerPath -PathType Leaf)) {
+                Write-Step "Cached compiler no longer exists: $cachedCompilerPath; refreshing CMake configuration"
+                $configureArgs = @('--fresh')
+                break
+            }
+        }
+    }
+}
+
 Write-Step "Configuring ($Configuration)"
-& $cmake -S $RepoRoot -B $BuildDir -G 'Ninja Multi-Config' `
+& $cmake @configureArgs -S $RepoRoot -B $BuildDir -G 'Ninja Multi-Config' `
     "-DCMAKE_MAKE_PROGRAM=$ninja" `
     '-U' 'CMAKE_AR' `
     '-U' 'CMAKE_DLLTOOL' `
@@ -143,8 +165,8 @@ Write-Step "Configuring ($Configuration)"
     '-U' 'CMAKE_OBJDUMP' `
     '-U' 'CMAKE_RANLIB' `
     '-U' 'CMAKE_STRIP' `
-    '-DCMAKE_C_COMPILER=cl.exe' `
-    '-DCMAKE_CXX_COMPILER=cl.exe' `
+    "-DCMAKE_C_COMPILER=$compiler" `
+    "-DCMAKE_CXX_COMPILER=$compiler" `
     "-DXV_ARCHITECTURE=$Architecture" `
     '-DCMAKE_CONFIGURATION_TYPES=Debug;RelWithDebInfo;Release'
 if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed" }
