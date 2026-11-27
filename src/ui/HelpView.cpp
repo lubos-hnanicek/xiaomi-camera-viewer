@@ -434,9 +434,10 @@ void drawAbout() {
     bullet("Signing in, listing cameras and reading or writing settings go to Xiaomi's servers in "
            "the region you pick, and are handled by Xiaomi under their privacy policy.");
     bullet("Video and audio travel directly between the cameras and this PC.");
-    bullet("There is no telemetry, crash reporting or automatic update check. Checking for "
-           "updates contacts GitHub only when you ask; an application package is downloaded "
-           "only after you confirm.");
+    bullet("There is no telemetry or crash reporting. By default, the app checks GitHub for a "
+           "newer stable release after launch and shows an update button if one is available. "
+           "This can be disabled in File -> Configuration; manual checks still work. No "
+           "package is downloaded until you confirm.");
     bullet("The account token is stored on this PC only, encrypted with your Windows account key "
            "so another account cannot read it.");
     ImGui::Dummy(ImVec2(0, 10));
@@ -564,8 +565,10 @@ void drawProgramUpdateDialog(App& app, bool& open) {
     const float unit = ImGui::GetFontSize();
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetWorkCenter(), ImGuiCond_Appearing,
                            ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(unit * 48, 0), ImGuiCond_Appearing);
-    if (!ImGui::BeginPopupModal("Program update", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::SetNextWindowSize(ImVec2(unit * 48, unit * 30), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(unit * 48, unit * 30),
+                                        ImVec2(unit * 48, unit * 30));
+    if (!ImGui::BeginPopupModal("Program update", nullptr, ImGuiWindowFlags_NoResize)) {
         return;
     }
     ImGui::Text("Installed version: %s (%s)", XV_VERSION, XV_ARCHITECTURE);

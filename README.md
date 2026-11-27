@@ -28,6 +28,11 @@ attached separately to each release for debugging.
 Open **Help -> Check for updates** to check GitHub for a newer stable
 release. The confirmation dialog shows its changelog and download size. No
 application package is downloaded until you choose **Download and update**.
+By default, the app also checks once after launch. When a newer stable release is
+available, an **Update available** button appears in the main menu bar and opens
+the same confirmation dialog. This startup check can be disabled in
+**File -> Configuration** with **Check for updates after launch**; manual checks
+through **Help** remain available.
 
 The dialog shows download progress and supports cancellation before installation.
 The package is checked against GitHub's SHA-256 digest, and its version and
@@ -40,9 +45,10 @@ alone. If replacement or restart fails, the helper attempts to restore the
 original files and reports the error. Failed updates retain their temporary
 files and backups for recovery.
 
-The application folder must be writable. Update checks are never automatic.
+The startup check is silent and contacts GitHub only to read release metadata.
 Windows PowerShell, included with Windows, performs the update; no developer
-tools or administrator rights are needed for a writable portable folder.
+tools are needed. Administrator approval is requested only when the application
+folder is not writable.
 
 ## Features
 
@@ -753,8 +759,10 @@ it was asked to do, and only to systems you choose:
   [their privacy policy](https://privacy.mi.com/all/en_US), not by this project.
 - Video and audio travel **directly between your cameras and your PC** over the
   local network.
-- Nothing is sent to the maintainers of this project or to any third party. There
-  is no telemetry, no crash reporting and no update check.
+- There is no telemetry or crash reporting. By default, the app contacts GitHub
+  after launch to check for a newer stable release; this check can be disabled
+  in **File -> Configuration**. Only release metadata is requested, and the
+  application package is downloaded from GitHub after you explicitly confirm.
 - Your account token is stored on your PC only, encrypted with DPAPI so that it
   cannot be read by another Windows account. Recordings are written where you tell
   the app to write them and are never uploaded.

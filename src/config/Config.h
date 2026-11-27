@@ -132,6 +132,7 @@ struct AppConfig {
     UiFont uiFont = UiFont::ProggyVector;
     std::string uiFontName = "ProggyVector";
     float uiFontSize = 15.0f;
+    bool autoUpdateCheck = true;
     // Magnification used while the right mouse button is held over live video.
     // It is intentionally config-file-only for now; 1.0 disables magnification.
     float liveViewZoom = 2.0f;

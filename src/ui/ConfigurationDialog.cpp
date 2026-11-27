@@ -137,6 +137,9 @@ void drawConfigurationDialog(App& app) {
     ImGui::InputFloat("Live view zoom", &state.liveViewZoom, 0.1f, 1.0f, "%.1fx");
     ImGui::SetItemTooltip("Magnification while holding the right mouse button; 1.0 disables it.");
 
+    ImGui::Checkbox("Check for updates after launch", &state.autoUpdateCheck);
+    ImGui::SetItemTooltip("Checks stable release metadata on GitHub; no package is downloaded automatically.");
+
     ImGui::SeparatorText("Recording folder");
     ImGui::SetNextItemWidth(-1.0f);
     ImGui::InputText("##recordings-directory", state.recordingsDir.data(),

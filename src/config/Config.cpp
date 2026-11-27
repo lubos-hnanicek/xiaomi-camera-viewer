@@ -313,6 +313,7 @@ AppConfig AppConfig::load() {
                 kMaximumUiFontSize, kDefaultUiFontSize);
         config.uiFontSize = kDefaultUiFontSize;
     }
+    config.autoUpdateCheck = root.value("auto_update_check", true);
     config.liveViewZoom = root.value("live_view_zoom", 2.0f);
     if (!std::isfinite(config.liveViewZoom) || config.liveViewZoom < 1.0f) {
         XV_WARN("live_view_zoom must be at least 1.0; using the default 2.0");
@@ -362,6 +363,7 @@ bool AppConfig::save() const {
     root["ui_scale"] = uiScale;
     root["ui_font"] = uiFontName;
     root["ui_font_size"] = uiFontSize;
+    root["auto_update_check"] = autoUpdateCheck;
     root["live_view_zoom"] = liveViewZoom;
 
     // Only written when it has been changed from the default, so the default can

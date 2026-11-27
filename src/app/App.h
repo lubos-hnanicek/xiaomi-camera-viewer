@@ -107,6 +107,7 @@ struct ConfigurationDialogState {
     int fontChoice = 0;
     float uiScale = 1.0f;
     float uiFontSize = 15.0f;
+    bool autoUpdateCheck = true;
     float liveViewZoom = 2.0f;
     std::array<char, 64> fontSearch{};
     std::array<char, 128> uiFontName{};

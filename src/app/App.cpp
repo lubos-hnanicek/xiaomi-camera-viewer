@@ -968,6 +968,9 @@ int App::run(HINSTANCE instance, int showCommand) {
     } else {
         restoreSession();
     }
+    if (config_.autoUpdateCheck) {
+        programUpdate_.check();
+    }
 
     MSG message{};
     while (running_) {
@@ -1337,7 +1340,8 @@ void App::drawMenuBar() {
             ImGui::SetItemTooltip("Sign in to select a camera from your Xiaomi account.");
         }
         ImGui::Separator();
-        ImGui::BeginDisabled(programUpdate_.busy());
+        ImGui::BeginDisabled(programUpdate_.busy() &&
+                             programUpdate_.status().state != ProgramUpdate::State::Available);
         if (ImGui::MenuItem("Check for updates...")) {
             checkForProgramUpdate();
         }
@@ -1351,6 +1355,20 @@ void App::drawMenuBar() {
         ImGui::TextDisabled("Xiaomi Camera Viewer %s", XV_VERSION);
         ImGui::TextDisabled("Bridge %s", Bridge::instance().version().c_str());
         ImGui::EndMenu();
+    }
+
+    if (programUpdate_.status().state == ProgramUpdate::State::Available) {
+        ImGui::SameLine();
+        const auto label = std::format("Update available ({})",
+                                       programUpdate_.status().version);
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(theme::kAccent.x * 0.7f,
+                                                       theme::kAccent.y * 0.7f,
+                                                       theme::kAccent.z * 0.7f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, theme::kAccent);
+        if (ImGui::Button(label.c_str())) {
+            checkForProgramUpdate();
+        }
+        ImGui::PopStyleColor(2);
     }
 
     // Everything from here to the caption buttons is empty bar, and dragging it
@@ -1427,7 +1445,9 @@ void App::drawCaptionButtons(float dragFrom) {
 // --- Tasks ------------------------------------------------------------------
 
 void App::checkForProgramUpdate() {
-    programUpdate_.check();
+    if (programUpdate_.status().state != ProgramUpdate::State::Available) {
+        programUpdate_.check();
+    }
     showProgramUpdateDialog_ = true;
 }
 
@@ -2141,6 +2161,7 @@ void App::openConfigurationDialog() {
     ConfigurationDialogState& state = configurationDialog_;
     state.uiScale = config_.uiScale;
     state.uiFontSize = config_.uiFontSize;
+    state.autoUpdateCheck = config_.autoUpdateCheck;
     state.liveViewZoom = config_.liveViewZoom;
     state.fontChoice = config_.uiFont == UiFont::ProggyVector
                            ? 0
@@ -2196,6 +2217,7 @@ bool App::applyConfigurationDialog() {
     const float previousScale = config_.uiScale;
     const float previousFontSize = config_.uiFontSize;
     const float previousZoom = config_.liveViewZoom;
+    const bool previousAutoUpdateCheck = config_.autoUpdateCheck;
     const UiFont previousFont = config_.uiFont;
     const std::string previousFontName = config_.uiFontName;
     const std::string previousRecordingsDir = config_.recordingsDir;
@@ -2212,6 +2234,7 @@ bool App::applyConfigurationDialog() {
 
     config_.uiScale = state.uiScale;
     config_.uiFontSize = state.uiFontSize;
+    config_.autoUpdateCheck = state.autoUpdateCheck;
     config_.liveViewZoom = state.liveViewZoom;
     config_.recordingsDir = state.recordingsDir.data();
     config_.uiFont = selectedFont;
@@ -2220,6 +2243,7 @@ bool App::applyConfigurationDialog() {
     if (!config_.save()) {
         config_.uiScale = previousScale;
         config_.uiFontSize = previousFontSize;
+        config_.autoUpdateCheck = previousAutoUpdateCheck;
         config_.liveViewZoom = previousZoom;
         config_.uiFont = previousFont;
         config_.uiFontName = previousFontName;
