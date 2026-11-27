@@ -438,8 +438,10 @@ The two targets use separate dependency, build and package directories. Release
 archives are named `win-x64` and `win-arm64`.
 
 `build.ps1` finds Visual Studio itself and uses its bundled CMake and Ninja, so
-no developer command prompt is needed. The Go bridge is built as a dependency of
-the executable, so a plain `cmake --build` also works from the IDE.
+no developer command prompt is needed. It selects the first `cl.exe` in the
+developer environment's PATH, keeping ARM64 and x64 toolsets separate. The Go
+bridge is built as a dependency of the executable, so a plain `cmake --build`
+also works from the IDE.
 
 If a Visual Studio update removes the previously used compiler, `build.ps1`
 automatically refreshes CMake's cache and compiler metadata. Existing build

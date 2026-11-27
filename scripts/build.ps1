@@ -102,7 +102,8 @@ foreach ($line in $captured) {
         Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2] -ErrorAction SilentlyContinue
     }
 }
-$compiler = (Get-Command cl.exe -CommandType Application -ErrorAction Stop).Source
+$compiler = Get-Command cl.exe -CommandType Application -ErrorAction Stop |
+    Select-Object -First 1 -ExpandProperty Source
 
 $cmakeRoot = Join-Path $vsPath 'Common7\IDE\CommonExtensions\Microsoft\CMake'
 $cmake = Join-Path $cmakeRoot 'CMake\bin\cmake.exe'
